@@ -33,6 +33,7 @@ pip install .
 
 Here's a simple example to get you started:
 
+### Using the Built-in Dataset
 ```python
 from graffitiai import Optimist
 
@@ -49,13 +50,39 @@ optimist.describe_invariants_and_hypotheses()
 optimist.conjecture(
     target_invariant='independence_number',
     other_invariants=['n', 'matching_number'],
-    hypothesis='cubic_polytope',
+    hypothesis=['cubic_polytope'],
     complexity=2,
     show=True
 )
 
 # Save conjectures to a PDF
 optimist.save_conjectures_to_pdf("conjectures.pdf")
+```
+
+### Using a Custom CSV File
+```python
+from graffitiai import Optimist
+
+# Initialize the Optimist instance
+optimist = Optimist()
+
+# Load a custom dataset
+optimist.read_csv("path_to_your_data.csv")
+
+# Describe available invariants and hypotheses
+optimist.describe_invariants_and_hypotheses()
+
+# Generate conjectures
+optimist.conjecture(
+    target_invariant='your_target_invariant',
+    other_invariants=['invariant1', 'invariant2'],
+    hypothesis=['your_hypothesis_column'],
+    complexity=2,
+    show=True
+)
+
+# Save conjectures to a PDF
+optimist.save_conjectures_to_pdf("custom_conjectures.pdf")
 ```
 
 ---
@@ -112,5 +139,9 @@ This project is licensed under the MIT License. See the LICENSE file for details
 
 ## Acknowledgments
 
-GraffitiAI is inspired by the pioneering work of GRAFFITI and its successors in automated mathematical discovery.
+GraffitiAI is inspired by the pioneering work of GRAFFITI and built using the ideas of *TxGraffiti*.
+
+### Author
+
+Randy R. Davila, PhD
 
