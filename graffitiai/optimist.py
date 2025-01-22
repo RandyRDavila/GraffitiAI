@@ -149,7 +149,7 @@ class Optimist:
         Identify numerical columns suitable for conjectures.
 
         Returns:
-            list: A list of column names that have numerical data.
+            list: A list of column names that have numerical data, excluding boolean columns.
 
         Example:
             >>> optimist.get_possible_invariants()
@@ -158,9 +158,11 @@ class Optimist:
         if self.knowledge_table is None:
             raise ValueError("Knowledge table is not loaded. Please load data first.")
 
+        # Identify numerical columns, excluding boolean columns
         numerical_columns = [
             col for col in self.knowledge_table.columns
-            if pd.api.types.is_numeric_dtype(self.knowledge_table[col])
+            if pd.api.types.is_numeric_dtype(self.knowledge_table[col]) and
+            not pd.api.types.is_bool_dtype(self.knowledge_table[col])
         ]
         return numerical_columns
 
