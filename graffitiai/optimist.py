@@ -102,6 +102,48 @@ class Optimist:
             print("No boolean columns found. Added default column 'object' with all values set to True.")
 
 
+    def add_row(self, row_data):
+        """
+        Add a new row of data to the knowledge_table.
+
+        Args:
+            row_data (dict): A dictionary where keys are column names and values are the corresponding data.
+
+        Raises:
+            ValueError: If `knowledge_table` is not initialized or if `row_data` has keys not in the current columns.
+
+        Example:
+            >>> optimist = Optimist()
+            >>> optimist.load_sample_3_regular_polytope_data()
+            >>> new_row = {
+            ...     "name": "new_object",
+            ...     "n": 12,
+            ...     "matching_number": 6,
+            ...     "independence_number": 5,
+            ...     "cubic_polytope": True,
+            ...     "average_shortest_path_length": 2.1,
+            ... }
+            >>> optimist.add_row(new_row)
+        """
+        if self.knowledge_table is None:
+            raise ValueError("Knowledge table is not initialized. Load or create a dataset first.")
+
+        # Check for unexpected keys
+        unexpected_keys = [key for key in row_data.keys() if key not in self.knowledge_table.columns]
+        if unexpected_keys:
+            raise ValueError(f"Unexpected keys in row_data: {unexpected_keys}. Allowed columns: {list(self.knowledge_table.columns)}")
+
+        # Fill in missing columns with defaults
+        complete_row = {col: row_data.get(col, None) for col in self.knowledge_table.columns}
+
+        # Append the new row
+        self.knowledge_table = pd.concat(
+            [self.knowledge_table, pd.DataFrame([complete_row])],
+            ignore_index=True
+        )
+        print(f"Row added successfully: {complete_row}")
+
+
     def get_possible_invariants(self):
         """
         Identify numerical columns suitable for conjectures.
