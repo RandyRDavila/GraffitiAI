@@ -1,3 +1,37 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment directories
+env/
+venv/
 .venv
 
+# Distribution files
+build/
+dist/
+*.egg-info/
+
+# System-specific files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs and debug files
+*.log
+*.out
+*.err
+
+# Local IDE settings
+.vscode/
+.idea/
+*.swp
+
+# Generated files
+*.pdf
+
 test_script.py
+
