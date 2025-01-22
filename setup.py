@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="graffitiai",
+    name="graffitiai",  # Unique name on PyPI
     version="0.1.0",
     author="Randy Davila",
     author_email="randyrdavila@gmail.com",
@@ -14,9 +14,10 @@ setup(
     include_package_data=True,
     package_data={"graffitiai": ["data/*.csv"]},
     install_requires=[
-        "pandas",
-        "numpy",
-        "reportlab"
+    "numpy>=2.0",  # Numerical operations
+    "pandas>=2.0",  # Data manipulation
+    "reportlab>=4.0",  # PDF generation
+    "PuLP>=2.0",  # Linear programming solver
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
