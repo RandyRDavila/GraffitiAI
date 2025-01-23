@@ -17,7 +17,7 @@ GraffitiAI is a Python package for automated mathematical conjecturing, inspired
 To install GraffitiAI, use `pip`:
 
 ```bash
-# Clone the repository
+# Install GraffitiAI with pip
 pip install graffitiai
 ```
 
