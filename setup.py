@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="graffitiai",  # Unique name on PyPI
-    version="0.1.1",
+    version="0.1.3",
     author="Randy Davila",
     author_email="randyrdavila@gmail.com",
     description="A Python package for automated mathematical conjecturing.",
