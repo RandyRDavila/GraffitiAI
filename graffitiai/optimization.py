@@ -142,35 +142,69 @@ def make_lower_linear_conjecture(
         return MultiLinearConjecture(hypothesis, upper_conclusion, touch_upper, touch_set_upper)
 
 
+# def make_all_linear_conjectures(df, target_invariant, other_invariants, properties, complexity=2):
+
+#     upper_conjectures = []
+#     lower_conjectures = []
+#     seen_pairs = []
+#     if complexity == 2:
+#         for other1, other2 in combinations(other_invariants, 2):
+#             set_pair = set([other1, other2])
+#             if set_pair not in seen_pairs:
+#                 seen_pairs.append(set_pair)
+#                 for prop in properties:
+#                     # Ensure that neither of the 'other' invariants equals the target_invariant.
+#                     if other1 != target_invariant and other2 != target_invariant:
+#                         # Generate the conjecture for this combination of two invariants.
+#                         upper_conj = make_upper_linear_conjecture(df, target_invariant, [other1, other2], hyp=prop)
+#                         if upper_conj:
+#                             upper_conjectures.append(upper_conj)
+#                         lower_conj = make_lower_linear_conjecture(df, target_invariant, [other1, other2], hyp=prop)
+#                         if lower_conj:
+#                             lower_conjectures.append(lower_conj)
+#     elif complexity == 1:
+#         for other in other_invariants:
+#             for prop in properties:
+#                 if other != target_invariant:
+#                     upper_conj = make_upper_linear_conjecture(df, target_invariant, [other], hyp=prop)
+#                     if upper_conj:
+#                         upper_conjectures.append(upper_conj)
+#                         lower_conj = make_lower_linear_conjecture(df, target_invariant, [other], hyp=prop)
+#                     if lower_conj:
+#                         lower_conjectures.append(lower_conj)
+
+#     return upper_conjectures, lower_conjectures
+
+
 def make_all_linear_conjectures(df, target_invariant, other_invariants, properties, complexity=2):
+    """
+    Generate linear conjectures with a specified complexity (k-combinations of invariants).
+
+    :param df: The data frame containing the invariant data.
+    :param target_invariant: The name/key of the target invariant.
+    :param other_invariants: A list of other invariants from which to form combinations.
+    :param properties: A list of 'hypotheses' or properties to incorporate in the conjecture.
+    :param complexity: The number 'k' of invariants to combine in each conjecture.
+    :return: Two lists: (upper_conjectures, lower_conjectures).
+    """
 
     upper_conjectures = []
     lower_conjectures = []
-    seen_pairs = []
-    if complexity == 2:
-        for other1, other2 in combinations(other_invariants, 2):
-            set_pair = set([other1, other2])
-            if set_pair not in seen_pairs:
-                seen_pairs.append(set_pair)
-                for prop in properties:
-                    # Ensure that neither of the 'other' invariants equals the target_invariant.
-                    if other1 != target_invariant and other2 != target_invariant:
-                        # Generate the conjecture for this combination of two invariants.
-                        upper_conj = make_upper_linear_conjecture(df, target_invariant, [other1, other2], hyp=prop)
-                        if upper_conj:
-                            upper_conjectures.append(upper_conj)
-                        lower_conj = make_lower_linear_conjecture(df, target_invariant, [other1, other2], hyp=prop)
-                        if lower_conj:
-                            lower_conjectures.append(lower_conj)
-    elif complexity == 1:
-        for other in other_invariants:
-            for prop in properties:
-                if other != target_invariant:
-                    upper_conj = make_upper_linear_conjecture(df, target_invariant, [other], hyp=prop)
-                    if upper_conj:
-                        upper_conjectures.append(upper_conj)
-                        lower_conj = make_lower_linear_conjecture(df, target_invariant, [other], hyp=prop)
-                    if lower_conj:
-                        lower_conjectures.append(lower_conj)
+
+    # Exclude the target_invariant from our "other invariants" to mimic the original logic
+    valid_invariants = [inv for inv in other_invariants if inv != target_invariant]
+
+    # Generate all k-combinations from the valid invariants
+    for combo in combinations(valid_invariants, complexity):
+        for prop in properties:
+            # Generate the "upper" conjecture
+            upper_conj = make_upper_linear_conjecture(df, target_invariant, list(combo), hyp=prop)
+            if upper_conj:
+                upper_conjectures.append(upper_conj)
+
+            # Generate the "lower" conjecture
+            lower_conj = make_lower_linear_conjecture(df, target_invariant, list(combo), hyp=prop)
+            if lower_conj:
+                lower_conjectures.append(lower_conj)
 
     return upper_conjectures, lower_conjectures
