@@ -61,8 +61,8 @@ def make_upper_linear_conjecture(
 
         Xs_true_upper = [df[other].tolist() for other in other_invariants]
         Y_true_upper = df[target_invariant].tolist()
-        Xs_true_lower = [df[other].tolist() for other in other_invariants]
-        Y_true_lower = df[target_invariant].tolist()
+        # Xs_true_lower = [df[other].tolist() for other in other_invariants]
+        # Y_true_lower = df[target_invariant].tolist()
         # Compute the number of instances of equality - the touch number of the conjecture.
         touch_set_upper = set([true_objects[j] for j in range(len(Y_true_upper)) if
                             Y_true_upper[j] == sum(weights_upper[i] * Xs_true_upper[i][j] for i in range(len(other_invariants))) + b_upper_value])
@@ -89,7 +89,7 @@ def make_lower_linear_conjecture(
     true_objects = df["name"].tolist()
 
     # Preprocess the data to find the maximum Y for each X for the upper bound
-    df_upper = df.loc[df.groupby(other_invariants)[target_invariant].idxmax()]
+    df_upper = df.loc[df.groupby(other_invariants)[target_invariant].idxmin()]
 
     # Extract the data for the upper and lower bound problems
     Xs_upper = [df_upper[other].tolist() for other in other_invariants]
