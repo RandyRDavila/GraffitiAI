@@ -27,95 +27,42 @@ pip install graffitiai
 
 Here's a simple example to get you started:
 
-### Using the Built-in Dataset
 ```python
-from graffitiai import Optimist
+from graffitiai import TxGraffiti
 
 # Initialize the Optimist instance
-optimist = Optimist()
-
-# Load the sample dataset
-optimist.load_sample_3_regular_polytope_data()
-
-# Describe available invariants and hypotheses
-optimist.describe_invariants_and_hypotheses()
-
-# Generate conjectures
-optimist.conjecture(
-    target_invariant='independence_number',
-    other_invariants=['n', 'matching_number'],
-    hypothesis=['cubic_polytope'],
-    complexity=2,
-    show=True
-)
-
-# Save conjectures to a PDF
-optimist.save_conjectures_to_pdf("conjectures.pdf")
-```
-
-### Using a Custom CSV File
-```python
-from graffitiai import Optimist
-
-# Initialize the Optimist instance
-optimist = Optimist()
+ai = TxGraffiti()
 
 # Load a custom dataset
-optimist.read_csv("path_to_your_data.csv")
+ai.read_csv("<path_to_your_data>.csv")
 
 # Describe available invariants and hypotheses
-optimist.describe_invariants_and_hypotheses()
+ai.describe_invariants_and_hypotheses()
 
 # Generate conjectures
-optimist.conjecture(
-    target_invariant='your_target_invariant',
-    other_invariants=['invariant1', 'invariant2'],
-    hypothesis=['your_hypothesis_column'],
-    complexity=2,
-    show=True
+ai.conjecture(
+    target_invariants=[
+        "zero_forcing_number",
+        "total_domination_number",
+    ],
+    other_invariants=[
+        "independence_number",
+        "diameter",
+        "radius",
+        "domination_number"
+    ],
+    hypothesis=["a_connected_cubic_and_diamond_free_graph"],
+    complexity_range=(1, 3),
+    lower_b_max=None,
+    upper_b_max=2,
 )
 
+# Write the conjectures to the wall!
+ai.write_on_the_wall()
+
 # Save conjectures to a PDF
-optimist.save_conjectures_to_pdf("custom_conjectures.pdf")
+ai.save_conjectures_to_pdf("custom_conjectures.pdf")
 ```
-
----
-
-## API Reference
-
-### `class Optimist`
-
-#### Methods
-
-1. **`load_sample_3_regular_polytope_data()`**
-   Loads the included sample dataset of 3-regular polytopes into the knowledge table.
-
-2. **`read_csv(path_to_csv)`**
-   Loads a dataset from a CSV file, standardizing column names and ensuring compatibility for conjecturing.
-
-3. **`get_possible_invariants()`**
-   Returns a list of numerical columns suitable for conjecturing.
-
-4. **`get_possible_hypotheses()`**
-   Returns a list of boolean columns suitable for hypotheses.
-
-5. **`describe_invariants_and_hypotheses()`**
-   Prints the possible invariants and hypotheses from the knowledge table.
-
-6. **`conjecture(target_invariant, other_invariants, hypothesis, complexity=2, show=False, min_touch=0, use_morgan=True, use_smokey=True)`**
-   Generates conjectures for a given target invariant using the specified invariants and hypotheses.
-
-7. **`write_on_the_wall(target_invariants=None)`**
-   Displays generated conjectures for specified or all target invariants.
-
-8. **`save_conjectures_to_pdf(file_name="conjectures.pdf", target_invariants=None)`**
-   Exports generated conjectures to a PDF file, including the date and time of generation.
-
----
-
-## Sample Dataset
-
-GraffitiAI includes a sample dataset of 3-regular polytopes. It contains properties such as independence number, domination number, and average shortest path length, among others. This dataset is ideal for experimenting with the package's features.
 
 ---
 
@@ -133,7 +80,7 @@ This project is licensed under the MIT License. See the LICENSE file for details
 
 ## Acknowledgments
 
-GraffitiAI is inspired by the pioneering work of GRAFFITI and built using the ideas of *TxGraffiti*.
+GraffitiAI is inspired by the pioneering work of GRAFFITI and built using the ideas of *TxGraffiti* and the *Optimist*.
 
 ### Author
 

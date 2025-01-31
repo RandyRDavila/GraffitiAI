@@ -1,1 +1,1 @@
-from graffitiai.optimist import Optimist
+from graffitiai.models import Optimist, TxGraffiti
