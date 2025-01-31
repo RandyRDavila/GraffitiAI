@@ -51,7 +51,10 @@ ai.conjecture(
         "radius",
         "domination_number"
     ],
-    hypothesis=["a_connected_cubic_and_diamond_free_graph"],
+    hypothesis=[
+      "a_connected_cubic_and_diamond_free_graph",
+      "a_connected_and_cubic_graph_which_is_not_k_4",
+   ],
     complexity_range=(1, 3),
     lower_b_max=None,
     upper_b_max=2,
