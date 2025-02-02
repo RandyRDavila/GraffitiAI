@@ -446,6 +446,8 @@ class TxGraffiti:
     """
     def __init__(self, knowledge_table=None):
         self.knowledge_table = knowledge_table
+        if knowledge_table is not None:
+            self.update_invariant_knowledge()
         self.conjectures = {}
 
     def read_csv(self, path_to_csv):
@@ -505,17 +507,7 @@ class TxGraffiti:
             self.knowledge_table['object'] = True
             print("No boolean columns found. Added default column 'object' with all values set to True.")
 
-        # Identify numerical columns, excluding boolean columns
-        self.numerical_columns = [
-            col for col in self.knowledge_table.columns
-            if pd.api.types.is_numeric_dtype(self.knowledge_table[col]) and
-            not pd.api.types.is_bool_dtype(self.knowledge_table[col])
-        ]
-
-        self.boolean_columns = [
-            col for col in self.knowledge_table.columns
-            if pd.api.types.is_bool_dtype(self.knowledge_table[col])
-        ]
+        self.update_invariant_knowledge()
 
 
     def add_row(self, row_data):
@@ -559,7 +551,18 @@ class TxGraffiti:
         )
         print(f"Row added successfully: {complete_row}")
 
-        # Identify numerical columns, excluding boolean columns
+        self.update_invariant_knowledge()
+
+    def update_invariant_knowledge(self):
+        self.bad_columns = []
+        # Warn for non-numerical or non-boolean entries
+        for column in self.knowledge_table.columns:
+            if column == 'name':  # Skip the 'name' column
+                continue
+            if not pd.api.types.is_numeric_dtype(self.knowledge_table[column]) and \
+               not pd.api.types.is_bool_dtype(self.knowledge_table[column]):
+                warnings.warn(f"Column '{column}' contains non-numerical and non-boolean entries.")
+                self.bad_columns.append(column)
         self.numerical_columns = [
             col for col in self.knowledge_table.columns
             if pd.api.types.is_numeric_dtype(self.knowledge_table[col]) and
@@ -584,17 +587,7 @@ class TxGraffiti:
         self.knowledge_table = self.knowledge_table.drop(columns, axis=1)
         print(f"Columns dropped: {columns}")
 
-        # Identify numerical columns, excluding boolean columns
-        self.numerical_columns = [
-            col for col in self.knowledge_table.columns
-            if pd.api.types.is_numeric_dtype(self.knowledge_table[col]) and
-            not pd.api.types.is_bool_dtype(self.knowledge_table[col])
-        ]
-
-        self.boolean_columns = [
-            col for col in self.knowledge_table.columns
-            if pd.api.types.is_bool_dtype(self.knowledge_table[col])
-        ]
+        self.update_invariant_knowledge()
 
     def apply_heuristics(self, conjectures, min_touch=1, use_morgan=True, use_smokey=True):
         """
