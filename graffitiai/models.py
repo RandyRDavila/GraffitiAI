@@ -640,7 +640,9 @@ class TxGraffiti:
             lower_b_max=None,
             upper_b_max=None,
             lower_b_min=None,
-            upper_b_min=None
+            upper_b_min=None,
+            W_lower_bound=-10,
+            W_upper_bound=10,
     ):
         if other_invariants is None:
             other_invariants = self.numerical_columns
@@ -673,6 +675,8 @@ class TxGraffiti:
                     upper_b_max=upper_b_max,
                     lower_b_min=lower_b_min,
                     upper_b_min=upper_b_min,
+                    W_lower_bound=W_lower_bound,
+                    W_upper_bound=W_upper_bound,
                     progress_bar=pbar  # Pass the tqdm instance
                 )
 

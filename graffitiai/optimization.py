@@ -12,6 +12,8 @@ def make_upper_linear_conjecture(
         hyp="object",
         b_upper_bound=None,
         b_lower_bound=None,
+        W_upper_bound=10,
+        W_lower_bound=-10,
     ):
     pulp.LpSolverDefault.msg = 0
 
@@ -32,7 +34,7 @@ def make_upper_linear_conjecture(
     num_instances = len(Y)
 
     # Define LP variables
-    W = [pulp.LpVariable(f"w_{i+1}", -1000, 1000) for i in range(complexity)]
+    W = [pulp.LpVariable(f"w_{i+1}", W_lower_bound, W_upper_bound) for i in range(complexity)]
     b = pulp.LpVariable("b")
 
     # Auxiliary absolute value variables for W
@@ -111,6 +113,8 @@ def make_lower_linear_conjecture(
         hyp="object",
         b_upper_bound=None,
         b_lower_bound=None,
+        W_upper_bound=10,
+        W_lower_bound=-10,
     ):
     pulp.LpSolverDefault.msg = 0
 
@@ -131,7 +135,7 @@ def make_lower_linear_conjecture(
     num_instances = len(Y)
 
     # Define LP variables
-    W = [pulp.LpVariable(f"w_{i+1}", -1000, 1000) for i in range(complexity)]
+    W = [pulp.LpVariable(f"w_{i+1}", W_lower_bound, W_upper_bound) for i in range(complexity)]
     b = pulp.LpVariable("b")
 
     # Auxiliary absolute value variables for W
@@ -272,6 +276,8 @@ def make_all_linear_conjectures_range(
         upper_b_max=None,
         lower_b_min=None,
         upper_b_min=None,
+        W_upper_bound=10,
+        W_lower_bound=-10,
         progress_bar=None  # Accept an external progress bar
 ):
     upper_conjectures = []
@@ -285,14 +291,16 @@ def make_all_linear_conjectures_range(
             for prop in properties:
                 upper_conj = make_upper_linear_conjecture(
                     df, target_invariant, list(combo), hyp=prop,
-                    b_upper_bound=upper_b_max, b_lower_bound=upper_b_min
+                    b_upper_bound=upper_b_max, b_lower_bound=upper_b_min,
+                    W_upper_bound=W_upper_bound, W_lower_bound=W_lower_bound,
                 )
                 if upper_conj:
                     upper_conjectures.append(upper_conj)
 
                 lower_conj = make_lower_linear_conjecture(
                     df, target_invariant, list(combo), hyp=prop,
-                    b_upper_bound=lower_b_max, b_lower_bound=lower_b_min
+                    b_upper_bound=lower_b_max, b_lower_bound=lower_b_min,
+                    W_upper_bound=W_upper_bound, W_lower_bound=W_lower_bound,
                 )
                 if lower_conj:
                     lower_conjectures.append(lower_conj)
