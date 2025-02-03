@@ -18,6 +18,7 @@ setup(
     "pandas",  # Data manipulation
     "reportlab",  # PDF generation
     "PuLP",  # Linear programming solver
+    "tqdm",  # Progress bar
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
