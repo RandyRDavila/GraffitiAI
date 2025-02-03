@@ -2,6 +2,8 @@
 import pandas as pd
 import warnings
 import re
+from tqdm import tqdm
+from itertools import combinations
 
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
@@ -615,6 +617,8 @@ class TxGraffiti:
             conjectures = weak_smokey(conjectures)
         return conjectures
 
+
+
     def conjecture(
             self,
             target_invariant=None,
@@ -631,66 +635,30 @@ class TxGraffiti:
             lower_b_min=None,
             upper_b_min=None
     ):
-        """
-        Generate conjectures for a specified target invariant.
-
-        Args:
-            target_invariant (str): The column to conjecture bounds for.
-            other_invariants (list): Columns to use in forming conjectures.
-            hypothesis (str): The boolean column representing the hypothesis.
-            complexity (int): Maximum complexity of the conjectures.
-            show (bool): Whether to display conjectures in the console.
-            min_touch (int): Minimum touch number for conjectures.
-            use_morgan (bool): Whether to apply the Morgan heuristic.
-            use_smokey (bool): Whether to apply the Smokey heuristic.
-
-        Example:
-            >>> ai.conjecture(
-            ...     target_invariant='independence_number',
-            ...     other_invariants=['n', 'matching_number'],
-            ...     hypothesis=['cubic_polytope'],
-            ...     complexity=2,
-            ...     show=True
-            ... )
-        """
         if other_invariants is None:
             other_invariants = self.numerical_columns
         if hypothesis is None:
             hypothesis = self.boolean_columns
-        if target_invariant is not None:
-            upper_conjectures, lower_conjectures = make_all_linear_conjectures_range(
-                self.knowledge_table,
-                target_invariant,
-                other_invariants,
-                hypothesis,
-                complexity_range=complexity_range,
-                lower_b_max=lower_b_max,
-                upper_b_max=upper_b_max,
-                lower_b_min=lower_b_min,
-                upper_b_min=upper_b_min,
-            )
 
-            # Apply heuristics
-            upper_conjectures = self.apply_heuristics(upper_conjectures, min_touch, use_morgan, use_smokey)
-            lower_conjectures = self.apply_heuristics(lower_conjectures, min_touch, use_morgan, use_smokey)
+        # Ensure we have a list of targets
+        targets = [target_invariant] if target_invariant else target_invariants or self.numerical_columns
 
-            if show:
-                print("Upper Conjectures:")
-                for i, conj in enumerate(upper_conjectures):
-                    print(f"  {i+1}. {conj} (Equality: {conj.touch} times)")
-                print("\nLower Conjectures:")
-                for i, conj in enumerate(lower_conjectures):
-                    print(f"  {i+1}. {conj} (Equality: {conj.touch} times)")
+        # Compute the total number of iterations across all target invariants
+        total_iterations = sum(
+            sum(len(list(combinations([inv for inv in other_invariants if inv != target], complexity))) * len(hypothesis)
+                for complexity in range(complexity_range[0], complexity_range[1] + 1))
+            for target in targets
+        )
 
-            self.conjectures[target_invariant] = {
-                "upper": upper_conjectures,
-                "lower": lower_conjectures
-            }
-        elif target_invariants is not None:
-            for target_invariant in target_invariants:
+        if total_iterations == 0:
+            return  # Avoid running if no work to do
+
+        # Single progress bar for all calls
+        with tqdm(total=total_iterations, desc="Generating Conjectures", leave=True) as pbar:
+            for target in targets:
                 upper_conjectures, lower_conjectures = make_all_linear_conjectures_range(
                     self.knowledge_table,
-                    target_invariant,
+                    target,
                     other_invariants,
                     hypothesis,
                     complexity_range=complexity_range,
@@ -698,6 +666,7 @@ class TxGraffiti:
                     upper_b_max=upper_b_max,
                     lower_b_min=lower_b_min,
                     upper_b_min=upper_b_min,
+                    progress_bar=pbar  # Pass the tqdm instance
                 )
 
                 # Apply heuristics
@@ -705,47 +674,18 @@ class TxGraffiti:
                 lower_conjectures = self.apply_heuristics(lower_conjectures, min_touch, use_morgan, use_smokey)
 
                 if show:
-                    print(f"Upper Conjectures for {target_invariant}:")
+                    print(f"Upper Conjectures for {target}:")
                     for i, conj in enumerate(upper_conjectures):
                         print(f"  {i+1}. {conj} (Equality: {conj.touch} times)")
-                    print(f"\nLower Conjectures for {target_invariant}:")
+                    print(f"\nLower Conjectures for {target}:")
                     for i, conj in enumerate(lower_conjectures):
                         print(f"  {i+1}. {conj} (Equality: {conj.touch} times)")
 
-                self.conjectures[target_invariant] = {
+                self.conjectures[target] = {
                     "upper": upper_conjectures,
-                    "lower": lower_conjectures,
+                    "lower": lower_conjectures
                 }
-            else:
-                target_invariants = self.numerical_columns
-                upper_conjectures, lower_conjectures = make_all_linear_conjectures_range(
-                    self.knowledge_table,
-                    target_invariant,
-                    other_invariants,
-                    hypothesis,
-                    complexity_range=complexity_range,
-                    lower_b_max=lower_b_max,
-                    upper_b_max=upper_b_max,
-                    lower_b_min=lower_b_min,
-                    upper_b_min=upper_b_min,
-                )
 
-                # Apply heuristics
-                upper_conjectures = self.apply_heuristics(upper_conjectures, min_touch, use_morgan, use_smokey)
-                lower_conjectures = self.apply_heuristics(lower_conjectures, min_touch, use_morgan, use_smokey)
-
-                if show:
-                    print(f"Upper Conjectures for {target_invariant}:")
-                    for i, conj in enumerate(upper_conjectures):
-                        print(f"  {i+1}. {conj} (Equality: {conj.touch} times)")
-                    print(f"\nLower Conjectures for {target_invariant}:")
-                    for i, conj in enumerate(lower_conjectures):
-                        print(f"  {i+1}. {conj} (Equality: {conj.touch} times)")
-
-                self.conjectures[target_invariant] = {
-                    "upper": upper_conjectures,
-                    "lower": lower_conjectures,
-                }
 
     def write_on_the_wall(self, target_invariants=None):
         """
