@@ -610,11 +610,18 @@ class TxGraffiti:
         if not conjectures:
             return []
 
-        conjectures = hazel_heuristic(conjectures, min_touch=min_touch)
-        if use_morgan:
-            conjectures = morgan_heuristic(conjectures)
-        if use_smokey:
-            conjectures = weak_smokey(conjectures)
+        with tqdm(total=3, desc="Applying heuristics", unit="step") as progress:
+            conjectures = hazel_heuristic(conjectures, min_touch=min_touch)
+            progress.update(1)
+
+            if use_morgan:
+                conjectures = morgan_heuristic(conjectures)
+                progress.update(1)
+
+            if use_smokey:
+                conjectures = weak_smokey(conjectures)
+                progress.update(1)
+
         return conjectures
 
 
