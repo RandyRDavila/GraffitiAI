@@ -23,14 +23,15 @@ pip install graffitiai
 
 ---
 
-## Quick Start
+# Quick Start
 
 Here's a simple example to get you started:
 
+## TxGraffiti
 ```python
 from graffitiai import TxGraffiti
 
-# Initialize the Optimist instance
+# Initialize TxGraffiti
 ai = TxGraffiti()
 
 # Load a custom dataset
@@ -65,6 +66,76 @@ ai.write_on_the_wall()
 
 # Save conjectures to a PDF
 ai.save_conjectures_to_pdf("custom_conjectures.pdf")
+```
+
+## Graffiti
+```python
+from graffitiai import Graffiti
+
+# Initialize Graffiti
+ai = Graffiti()
+
+# Read in data
+ai.read_csv("https://raw.githubusercontent.com/RandyRDavila/GraffitiAI/refs/heads/main/graffitiai/data/data_437.csv")
+
+# Drop unwanted columns
+ai.drop_columns([
+    "adjacency_matrix",
+    "edge_list",
+    "number_of_spanning_trees",
+    'maximum_degree',
+    'minimum_degree',
+    'average_degree',
+    'number_of_triangles',
+    'vertex_connectivity',
+    'edge_connectivity',
+    'is_simple',
+    'clique_number',
+])
+ai.drop_columns([
+    f'number_of_{p}_gons' for p in range(12, 126)
+])
+
+# Conjecture lower bounds on a target invariant with a time limit set to 5 minutes
+ai.conjecture('number_of_6_gons', bound_type='lower', time_limit_minutes=5)
+
+# Write conjectures to the wall.
+ai.write_on_the_wall()
+```
+
+## Christine
+```python
+from graffitiai import Christine
+
+# Initialize Christine
+ai =Christine()
+
+# Read in data
+ai.read_csv("https://raw.githubusercontent.com/RandyRDavila/GraffitiAI/refs/heads/main/graffitiai/data/data_437.csv")
+
+# Drop unwanted columns
+ai.drop_columns([
+    "adjacency_matrix",
+    "edge_list",
+    "number_of_spanning_trees",
+    'maximum_degree',
+    'minimum_degree',
+    'average_degree',
+    'number_of_triangles',
+    'vertex_connectivity',
+    'edge_connectivity',
+    'is_simple',
+    'clique_number',
+])
+ai.drop_columns([
+    f'number_of_{p}_gons' for p in range(12, 126)
+])
+
+# Conjecture on a target invariant with a time limit set to 5 minutes
+ai.conjecture('number_of_6_gons', bound_type='lower', time_limit_minutes=5)
+
+# Write conjectures to the wall.
+ai.write_on_the_wall()
 ```
 
 ---
