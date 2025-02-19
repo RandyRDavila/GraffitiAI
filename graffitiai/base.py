@@ -11,6 +11,189 @@ __all__ = [
     "BaseConjecturer",
 ]
 
+import ast
+import numpy as np
+import statistics
+from scipy.stats import gmean, hmean, skew  # Requires SciPy
+
+
+def is_list_string(x):
+    """Return True if x is a string that can be parsed as a list or tuple."""
+    try:
+        val = ast.literal_eval(x)
+        return isinstance(val, (list, tuple))
+    except Exception:
+        return False
+
+def convert_list_string(x):
+    """Convert a string representation of a list to an actual list.
+       Returns None if conversion fails.
+    """
+    try:
+        val = ast.literal_eval(x)
+        if isinstance(val, (list, tuple)):
+            return list(val)
+    except Exception:
+        pass
+    return None
+
+
+def safe_mode(lst):
+    """Return mode if a unique mode exists, otherwise return None."""
+    try:
+        return statistics.mode(lst)
+    except Exception:
+        return None
+
+def median_absolute_deviation(lst):
+    """Compute the median absolute deviation."""
+    med = np.median(lst)
+    return np.median([abs(x - med) for x in lst])
+
+def safe_harmonic_mean(lst):
+    """Compute the harmonic mean if possible; returns None if any element is zero."""
+    try:
+        # hmean will throw an error if any value is zero.
+        return hmean(lst)
+    except Exception:
+        return None
+
+def is_prime(n):
+    """Return True if n is a prime number."""
+    if n < 2:
+        return False
+    for i in range(2, int(n**0.5)+1):
+        if n % i == 0:
+            return False
+    return True
+
+def number_of_prime_entries(lst):
+    """Return the number of prime entries in the list."""
+    return len([x for x in lst if is_prime(x)])
+
+def compute_aggregates(series):
+    """
+    Given a pandas Series where each element is a list of numbers,
+    compute various aggregate invariants.
+    Returns a dictionary with keys as aggregate names and values as the aggregate Series.
+    """
+    aggregates = {}
+    valid_entries = series.dropna()
+    if valid_entries.empty:
+        return aggregates
+
+    aggregates['count'] = valid_entries.apply(lambda lst: len(lst) if lst else None)
+    aggregates['mean'] = valid_entries.apply(lambda lst: np.mean(lst) if lst else None)
+    aggregates['median'] = valid_entries.apply(lambda lst: np.median(lst) if lst else None)
+    aggregates['mode'] = valid_entries.apply(lambda lst: safe_mode(lst) if lst else None)
+    aggregates['std'] = valid_entries.apply(lambda lst: np.std(lst) if lst else None)
+    aggregates['min'] = valid_entries.apply(lambda lst: min(lst) if lst else None)
+    aggregates['max'] = valid_entries.apply(lambda lst: max(lst) if lst else None)
+    aggregates['sum'] = valid_entries.apply(lambda lst: sum(lst) if lst else None)
+    # aggregates['second_largest_value'] = valid_entries.apply(lambda lst: sorted(lst)[-2] if len(lst) > 1 else None)
+    # aggregates['second_smallest_value'] = valid_entries.apply(lambda lst: sorted(lst)[1] if len(lst) > 1 else None)
+    # aggregates['skewness'] = valid_entries.apply(lambda lst: skew(lst) if len(lst) > 2 else None)
+    aggregates['nonzero_count'] = valid_entries.apply(lambda lst: len([x for x in lst if x != 0]) if lst else None)
+    # aggregates['positive_count'] = valid_entries.apply(lambda lst: len([x for x in lst if x > 0]) if lst else None)
+    aggregates['negative_count'] = valid_entries.apply(lambda lst: len([x for x in lst if x < 0]) if lst else None)
+    aggregates['unique_count'] = valid_entries.apply(lambda lst: len(set(lst)) if lst else None)
+    # aggregates['nonzero_unique_count'] = valid_entries.apply(lambda lst: len(set(x for x in lst if x != 0)) if lst else None)
+    # aggregates['positive_unique_count'] = valid_entries.apply(lambda lst: len(set(x for x in lst if x > 0)) if lst else None)
+    # aggregates['negative_unique_count'] = valid_entries.apply(lambda lst: len(set(x for x in lst if x < 0)) if lst else None)
+    aggregates['nonzero_mean'] = valid_entries.apply(lambda lst: np.mean([x for x in lst if x != 0]) if lst else None)
+    aggregates['prime_count'] = valid_entries.apply(lambda lst: number_of_prime_entries(lst) if lst else None)
+
+    aggregates['unique_ratio'] = valid_entries.apply(lambda lst: len(set(lst)) / len(lst) if lst else None)
+
+    # Additional aggregates:
+    aggregates['range'] = valid_entries.apply(lambda lst: max(lst) - min(lst) if lst else None)
+    aggregates['25th_percentile'] = valid_entries.apply(lambda lst: np.percentile(lst, 25) if lst else None)
+    aggregates['75th_percentile'] = valid_entries.apply(lambda lst: np.percentile(lst, 75) if lst else None)
+    aggregates['IQR'] = valid_entries.apply(lambda lst: np.percentile(lst, 75) - np.percentile(lst, 25) if lst else None)
+    aggregates['geom_mean'] = valid_entries.apply(lambda lst: gmean(lst) if lst and all(x > 0 for x in lst) else None)
+    aggregates['harm_mean'] = valid_entries.apply(lambda lst: safe_harmonic_mean(lst) if lst and all(x > 0 for x in lst) else None)
+    aggregates['sum_of_squares'] = valid_entries.apply(lambda lst: sum(x**2 for x in lst) if lst else None)
+    aggregates['median_absolute_deviation'] = valid_entries.apply(lambda lst: median_absolute_deviation(lst) if lst else None)
+    aggregates['CV'] = valid_entries.apply(lambda lst: np.std(lst) / np.mean(lst) if lst and np.mean(lst) != 0 else None)
+    aggregates['mode_frequency'] = valid_entries.apply(lambda lst: lst.count(safe_mode(lst)) if safe_mode(lst) is not None else None)
+    aggregates['zero_count'] = valid_entries.apply(lambda lst: lst.count(0) if lst else None)
+
+    return aggregates
+
+def detect_and_create_invariants(df):
+    """
+    For each object-type column in the DataFrame, try to detect whether
+    it contains string representations of lists. If so, compute aggregate
+    invariants and add them as new columns, and also expand the list entries
+    into separate columns.
+    """
+    # Mapping of aggregate keys to descriptive names.
+    descriptive_mapping = {
+        'count': 'count',
+        'mean': 'mean',
+        'median': 'median',
+        'mode': 'mode',
+        'std': 'standard_deviation',
+        'min': 'minimum',
+        'max': 'maximum',
+        'sum': 'sum',
+        'range': 'range',
+        '25th_percentile': '25th_percentile',
+        '75th_percentile': '75th_percentile',
+        'IQR': 'interquartile_range',
+        'geom_mean': 'geometric_mean',
+        'harm_mean': 'harmonic_mean',
+        'sum_of_squares': 'sum_of_squares',
+        'median_absolute_deviation': 'median_absolute_deviation',
+        'CV': 'coefficient_of_variation',
+        'mode_frequency': 'mode_frequency',
+        'zero_count': 'zero_count',
+        'second_largest_value': 'second_largest_value',
+        'second_small_value': 'second_smallest_value',
+        'skewness': 'skewness',
+        'nonzero_count': 'nonzero_count',
+        'positive_count': 'positive_count',
+        'negative_count': 'negative_count',
+        'unique_count': 'unique_count',
+        'nonzero_unique_count': 'nonzero_unique_count',
+        'positive_unique_count': 'positive_unique_count',
+        'negative_unique_count': 'negative_unique_count',
+        'nonzero_mean': 'nonzero_mean',
+        'number_of_primes_in': 'number_of_primes_in',
+        'unique_ratio': 'unique_ratio'
+    }
+
+    for col in df.columns:
+        # Only consider object-type columns.
+        if df[col].dtype == 'object':
+            # Sample some non-null entries.
+            sample = df[col].dropna().head(10)
+            if sample.empty:
+                continue
+            # Count how many entries in the sample are list-like.
+            count = sum(is_list_string(x) for x in sample)
+            if count >= len(sample) / 2:
+                print(f"Column '{col}' appears to be a list. Creating aggregate invariants and expanding column...")
+                # Convert the entire column.
+                parsed_series = df[col].apply(convert_list_string)
+
+                # Compute aggregate invariants.
+                aggregates = compute_aggregates(parsed_series)
+                for agg_key, agg_series in aggregates.items():
+                    # Create a new column with a descriptive name.
+                    new_col_name = f"{descriptive_mapping.get(agg_key, agg_key)}({col})"
+                    df[new_col_name] = agg_series
+                    print(f"Created aggregate column: {new_col_name}")
+
+                # Determine the maximum list length in the column.
+                max_len = parsed_series.apply(lambda x: len(x) if isinstance(x, list) else 0).max()
+                # Create a new column for each index position.
+                for i in range(max_len):
+                    new_col_name = f"{col}[{i}]"
+                    df[new_col_name] = parsed_series.apply(lambda x: x[i] if isinstance(x, list) and len(x) > i else 0)
+                    print(f"Created expanded column: {new_col_name}")
+    return df
+
 
 class BoundConjecture:
     """
@@ -55,7 +238,6 @@ class BoundConjecture:
         return " + ".join(nonzero_terms)
 
     def format_full_expression(self):
-        # Simplify the candidate expression before formatting.
         simplified_expr = BoundConjecture.simplify_expression(self.candidate_expr)
         if self.hypothesis:
             if self.bound_type == 'lower':
@@ -255,7 +437,7 @@ class BaseConjecturer:
             self.update_invariant_knowledge()
         self.conjectures = {}
 
-    def read_csv(self, path_to_csv):
+    def read_csv(self, path_to_csv, drop=None):
         """
         Load data from a CSV file and preprocess it.
 
@@ -302,6 +484,10 @@ class BaseConjecturer:
             print("No boolean columns found. Added default column 'object' with all values set to True.")
 
         self.update_invariant_knowledge()
+        if drop:
+            self.drop_columns(drop)
+
+        self.knowledge_table = detect_and_create_invariants(self.knowledge_table)
 
     def add_row(self, row_data):
         """
