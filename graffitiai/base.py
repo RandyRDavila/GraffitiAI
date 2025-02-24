@@ -1,6 +1,4 @@
 import pandas as pd
-import re
-import warnings
 import numpy as np
 from itertools import combinations, permutations
 from tqdm import tqdm
