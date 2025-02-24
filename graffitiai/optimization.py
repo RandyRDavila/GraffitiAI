@@ -2,6 +2,8 @@ import pulp
 import math
 from fractions import Fraction
 from itertools import combinations
+import numpy as np
+
 
 from .conjecture_class import Hypothesis, MultiLinearConclusion, MultiLinearConjecture
 
@@ -201,6 +203,10 @@ def make_lower_linear_conjecture(
     }
     touch_number = len(sharp_instances)
 
+    def candidate_function(df):
+        df[df[hyp] == True]
+        return sum(W_values[i] * df[other_invariants[i]] for i in range(complexity)) + b_value
+
     # Create conjecture
     hypothesis = Hypothesis(hyp, true_object_set=true_objects)
     conclusion = MultiLinearConclusion(target_invariant, ">=", W_values, other_invariants, b_value)
@@ -262,6 +268,35 @@ def make_all_linear_conjectures(
             )
             if lower_conj:
                 lower_conjectures.append(lower_conj)
+
+    # generate a small number of conjectures with arbitrary complexity
+    for _ in range(1, 4):
+        inv1 = np.random.choice(valid_invariants)
+        inv2 = np.random.choice(valid_invariants)
+        inv3 = np.random.choice(valid_invariants)
+        for prop in properties:
+            upper_conj = make_upper_linear_conjecture(
+                df,
+                target_invariant,
+                [inv1, inv2, inv3],
+                hyp=prop,
+                b_upper_bound=upper_b_max,
+                b_lower_bound=upper_b_min
+            )
+            if upper_conj:
+                upper_conjectures.append(upper_conj)
+
+            lower_conj = make_lower_linear_conjecture(
+                df,
+                target_invariant,
+                [inv1, inv2, inv3],
+                hyp=prop,
+                b_upper_bound=lower_b_max,
+                b_lower_bound=lower_b_min
+            )
+            if lower_conj:
+                lower_conjectures.append(lower_conj)
+
 
     return upper_conjectures, lower_conjectures
 
