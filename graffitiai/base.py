@@ -1,10 +1,15 @@
 import pandas as pd
-import re
-import warnings
+import numpy as np
+from itertools import combinations, permutations
+from tqdm import tqdm
 
-# These functions are assumed to be defined elsewhere in your package.
-# from graffitiai.heuristics import hazel_heuristic, morgan_heuristic, weak_smokey
-# from graffitiai.conjectures import make_all_linear_conjectures_range
+from graffitiai.utils import (
+    is_list_string,
+    convert_and_no_pad,
+    convert_and_pad,
+    expand_statistics,
+)
+
 
 __all__ = [
     "BoundConjecture",
@@ -18,17 +23,31 @@ class BoundConjecture:
        If (hypothesis), then (target bound_type candidate_expr)
     where bound_type is 'lower' (target ≥ candidate) or 'upper' (target ≤ candidate).
     """
-    def __init__(self, target, candidate_expr, candidate_func, bound_type='lower',
-                 hypothesis=None, complexity=None):
+    def __init__(
+            self,
+            target,
+            candidate_expr,
+            candidate_func,
+            bound_type='lower',
+            hypothesis=None,
+            complexity=None,
+            touch=None,
+            sharp_instances=None,
+            conclusion=None,
+            callable=None
+        ):
         self.target = target
         self.candidate_expr = candidate_expr
         self.candidate_func = candidate_func
         self.bound_type = bound_type
         self.hypothesis = hypothesis
         self.complexity = complexity
-        self.touch = None  # Will be computed later (e.g. with compute_touch)
+        self.touch = touch
         self.full_expr = self.format_full_expression()
         self.conclusion = self._set_conclusion()
+        self.sharp_instances = sharp_instances
+        self.conclusion = conclusion
+        self.callable = callable
 
     @staticmethod
     def simplify_expression(expr: str) -> str:
@@ -78,6 +97,9 @@ class BoundConjecture:
     def evaluate(self, df):
         """Evaluate the candidate function on the given DataFrame."""
         return self.candidate_func(df)
+
+    def __call__(self, df):
+        return self.callable(df)
 
     def compute_touch(self, df):
         """Compute how many rows satisfy equality between the target and candidate."""
@@ -254,8 +276,9 @@ class BaseConjecturer:
         if knowledge_table is not None:
             self.update_invariant_knowledge()
         self.conjectures = {}
+        self.accepted_conjectures = []
 
-    def read_csv(self, path_to_csv):
+    def read_csv(self, path_to_csv, drop_columns=None, standard_columns=True):
         """
         Load data from a CSV file and preprocess it.
 
@@ -267,41 +290,30 @@ class BaseConjecturer:
         self.knowledge_table = pd.read_csv(path_to_csv)
         self.bad_columns = []
 
-        # Standardize column names.
-        original_columns = self.knowledge_table.columns
-        self.knowledge_table.columns = [
-            re.sub(r'\W+', '_', col.strip().lower()) for col in original_columns
-        ]
-        print("Standardized column names:")
-        for original, new in zip(original_columns, self.knowledge_table.columns):
-            if original != new:
-                print(f"  '{original}' -> '{new}'")
+        if standard_columns:
+            self.knowledge_table.columns = (
+            self.knowledge_table.columns
+            .str.strip()
+            .str.lower()
+            .str.replace(r'\W+', '_', regex=True)
+        )
 
         # Ensure a 'name' column exists.
         if 'name' not in self.knowledge_table.columns:
             n = len(self.knowledge_table)
             self.knowledge_table['name'] = [f'O{i+1}' for i in range(n)]
-            print(f"'name' column missing. Created default names: O1, O2, ..., O{n}.")
-
-        # Identify problematic columns.
-        for column in self.knowledge_table.columns:
-            if column == 'name':  # Skip the name column.
-                continue
-            if not pd.api.types.is_numeric_dtype(self.knowledge_table[column]) and \
-               not pd.api.types.is_bool_dtype(self.knowledge_table[column]):
-                warnings.warn(f"Column '{column}' contains non-numerical and non-boolean entries.")
-                self.bad_columns.append(column)
 
         # Add a default boolean column if none exist.
-        boolean_columns = [
-            col for col in self.knowledge_table.columns
-            if pd.api.types.is_bool_dtype(self.knowledge_table[col])
-        ]
-        if not boolean_columns:
+        self.numerical_columns = self.knowledge_table.select_dtypes(include=['number']).columns.tolist()
+        self.boolean_columns = self.knowledge_table.select_dtypes(include='bool').columns.tolist()
+
+        if not self.boolean_columns:
             self.knowledge_table['object'] = True
-            print("No boolean columns found. Added default column 'object' with all values set to True.")
 
         self.update_invariant_knowledge()
+
+        if drop_columns:
+            self.drop_columns(drop_columns)
 
     def add_row(self, row_data):
         """
@@ -325,29 +337,14 @@ class BaseConjecturer:
             [self.knowledge_table, pd.DataFrame([complete_row])],
             ignore_index=True
         )
-        print(f"Row added successfully: {complete_row}")
         self.update_invariant_knowledge()
 
     def update_invariant_knowledge(self):
         """
         Update internal records of which columns are numerical or boolean and track any bad columns.
         """
-        self.bad_columns = []
-        for column in self.knowledge_table.columns:
-            if column == 'name':
-                continue
-            if not pd.api.types.is_numeric_dtype(self.knowledge_table[column]) and \
-               not pd.api.types.is_bool_dtype(self.knowledge_table[column]):
-                warnings.warn(f"Column '{column}' contains non-numerical and non-boolean entries.")
-                self.bad_columns.append(column)
-        self.numerical_columns = [
-            col for col in self.knowledge_table.columns
-            if pd.api.types.is_numeric_dtype(self.knowledge_table[col]) and not pd.api.types.is_bool_dtype(self.knowledge_table[col])
-        ]
-        self.boolean_columns = [
-            col for col in self.knowledge_table.columns
-            if pd.api.types.is_bool_dtype(self.knowledge_table[col])
-        ]
+        self.numerical_columns = self.knowledge_table.select_dtypes(include=['number']).columns.tolist()
+        self.boolean_columns = self.knowledge_table.select_dtypes(include='bool').columns.tolist()
 
     def drop_columns(self, columns):
         """
@@ -357,9 +354,48 @@ class BaseConjecturer:
             columns (list): List of column names to remove.
         """
         self.knowledge_table = self.knowledge_table.drop(columns, axis=1)
-        print(f"Columns dropped: {columns}")
         self.update_invariant_knowledge()
 
+    def find_columns_of_lists(self):
+        """
+        Find columns that contain lists in the
+        knowledge_table and return their names.
+        """
+        list_columns = []
+        for column in self.knowledge_table.columns:
+            if self.knowledge_table[column].apply(lambda x: isinstance(x, list)).any():
+                list_columns.append(column)
+            if is_list_string(self.knowledge_table[column]):
+                list_columns.append(column)
+        return list_columns
+
+    def vectorize(self, columns, pad=False):
+        """
+        Convert columns that contain lists in the knowledge_table
+        to arrays and return the modified DataFrame.
+        """
+        for column in columns:
+            if pad:
+                self.knowledge_table[column] = convert_and_pad(self.knowledge_table[column])
+            else:
+                self.knowledge_table[column] = convert_and_no_pad(self.knowledge_table[column])
+
+        return self.knowledge_table
+
+    def add_statistics(self, columns):
+        """
+        Compute statistics for the specified columns in the knowledge_table.
+        """
+        for column in columns:
+            self.knowledge_table = expand_statistics(column, self.knowledge_table)
+        return self.knowledge_table
+
+    def set_boolean_columns(self):
+        """
+        Return the boolean columns in the knowledge_table.
+        """
+        self.boolean_columns = self.knowledge_table.select_dtypes(include='bool').columns.tolist()
+        return self.boolean_columns
 
     def conjecture(self, **kwargs):
         """
@@ -380,3 +416,222 @@ class BaseConjecturer:
             NotImplementedError: Always, unless overridden.
         """
         raise NotImplementedError("Subclasses must implement the write_on_the_wall() method.")
+
+
+    def set_complexity(self, avoid_columns=[], max_complexity=3):
+        """
+        Generate new columns of increased complexity from numerical invariants.
+
+        For each base invariant (numerical column not in avoid_columns), create:
+          - Complexity 1:
+              inv^2, max(1, inv), floor(inv), ceil(inv),
+              sqrt(inv) [if all values >= 0],
+              log(inv) [if all values > 0].
+          - Complexity 2:
+              For every pair (inv1, inv2) from the current set (base + complexity 1):
+                  min(inv1, inv2), max(inv1, inv2),
+                  inv1*inv2,
+                  inv1/inv2 [if inv2 is never 0],
+                  sqrt(inv1 + inv2) [if (inv1+inv2) is nonnegative],
+                  (inv1 + inv2)^2.
+              (For division, we use each ordered pair so that the denominator role is explicit.)
+          - Complexity 3 (if max_complexity == 3):
+              For every triple (inv1, inv2, inv3) from the current set (including complexity 1 and 2):
+                  (inv1 + inv2)/inv3 [if inv3 is never 0],
+                  (inv1 + inv2)*inv3,
+                  (inv1 - inv2)/inv3 [if inv3 is never 0].
+
+        New columns are added to self.knowledge_table.
+        """
+
+        # Base invariants: numerical columns not in avoid_columns.
+        base_invariants = [col for col in self.numerical_columns if col not in avoid_columns]
+        current_invariants = base_invariants.copy()
+
+        # For ease of notation.
+        df = self.knowledge_table
+
+        # ---- Complexity 1 ----
+        new_columns = {}
+        for col in tqdm(base_invariants, desc="Processing Complexity 1 features"):
+            col_data = df[col]
+            # Square: inv^2
+            new_name = f"({col})^2"
+            new_columns[new_name] = col_data ** 2
+
+            # max(1, inv)
+            new_name = f"max(1, {col})"
+            new_columns[new_name] = np.maximum(1, col_data)
+
+            # floor(inv)
+            new_name = f"floor({col})"
+            new_columns[new_name] = np.floor(col_data)
+
+            # ceil(inv)
+            new_name = f"ceil({col})"
+            new_columns[new_name] = np.ceil(col_data)
+
+            # sqrt(inv) if defined (all entries nonnegative)
+            if (col_data >= 0).all():
+                new_name = f"sqrt({col})"
+                new_columns[new_name] = np.sqrt(col_data)
+
+            # log(inv) if defined (all entries > 0)
+            if (col_data > 0).all():
+                new_name = f"log({col})"
+                new_columns[new_name] = np.log(col_data)
+
+        # Add all complexity 1 columns to our invariant set.
+        df = pd.concat([df, pd.DataFrame(new_columns)], axis=1)
+
+        # ---- Complexity 2 ----
+        new_cols = {}
+        # For symmetric operations, use unordered pairs.
+        combo_list = list(combinations(current_invariants, 2))
+        for col1, col2 in tqdm(combo_list, desc="Processing Complexity 2 pairs"):
+            # min(inv1, inv2)
+            new_name = f"min({col1}, {col2})"
+            new_cols[new_name] = np.minimum(df[col1], df[col2])
+
+            # max(inv1, inv2)
+            new_name = f"max({col1}, {col2})"
+            new_cols[new_name] = np.maximum(df[col1], df[col2])
+
+            # Product: inv1 * inv2
+            new_name = f"({col1} * {col2})"
+            new_cols[new_name] = df[col1] * df[col2]
+
+            # sqrt(inv1 + inv2) if (inv1 + inv2) is nonnegative on all rows.
+            if ((df[col1] + df[col2]) >= 0).all():
+                new_name = f"sqrt({col1} + {col2})"
+                new_cols[new_name] = np.sqrt(df[col1] + df[col2])
+
+            # (inv1 + inv2)^2
+            new_name = f"({col1}+ {col2})^2"
+            new_cols[new_name] = (df[col1] + df[col2]) ** 2
+
+        perm_total = len(current_invariants) * (len(current_invariants) - 1)
+        for col1, col2 in tqdm(permutations(current_invariants, 2), total=perm_total, desc="Processing Complexity 2 divisions"):
+            if (df[col2] != 0).all():
+                new_name = f"({col1} / {col2})"
+                new_cols[new_name] = df[col1] / df[col2]
+
+        # Update invariant set with complexity 2 columns.
+        df = pd.concat([df, pd.DataFrame(new_cols)], axis=1)
+
+        # ---- Complexity 3 (optional) ----
+        if max_complexity == 3:
+            new_cols = {}
+            triple_list = list(combinations(current_invariants, 3))
+            for col1, col2, col3 in tqdm(triple_list, desc="Processing Complexity 3 triples"):
+                # (inv1 + inv2)/inv3 and (inv1 - inv2)/inv3 require inv3 to be safe.
+                if (df[col3] != 0).all():
+                    new_name = f"[({col1} + {col2}) / {col3}]"
+                    new_cols[new_name] = (df[col1] + df[col2]) / df[col3]
+
+                    new_name = f"[({col1} - {col2}) / {col3}]"
+                    new_cols[new_name] = (df[col1] - df[col2]) / df[col3]
+                # (inv1 + inv2)*inv3 (no division, so no check needed)
+                new_name = f"[({col1} + {col2}) * {col3}]"
+                new_cols[new_name] = (df[col1] + df[col2]) * df[col3]
+
+            # Update invariant set with complexity 3 columns.
+            df = pd.concat([df, pd.DataFrame(new_cols)], axis=1)
+
+        # Finally, update the invariant knowledge in case new columns need to be tracked.
+        self.knowledge_table = df
+        self.update_invariant_knowledge()
+
+
+    def _inequality_holds(self, candidate_series):
+        target_series = self.knowledge_table[self.target]
+        if self.bound_type == 'lower':
+            return (target_series >= candidate_series).all()
+        else:
+            return (target_series <= candidate_series).all()
+
+    def _is_significant(self, candidate_series):
+        """
+        A candidate is significant if there is at least one row for which
+        the new candidate improves upon every accepted candidate.
+
+        For upper bounds: candidate_series must be strictly lower than all
+        accepted candidates on at least one row.
+
+        For lower bounds: candidate_series must be strictly higher than all
+        accepted candidates on at least one row.
+        """
+        # If there are no accepted conjectures yet, then the candidate is automatically significant.
+        if not self.accepted_conjectures:
+            return True
+
+        # Create a list of boolean Series, one for each accepted candidate.
+        comparisons = []
+        for conj in self.accepted_conjectures:
+            accepted_values = conj['func'](self.knowledge_table)
+            if self.bound_type == 'upper':
+                # Candidate is better if its value is lower than the accepted one.
+                comparisons.append(candidate_series < accepted_values)
+            else:
+                # For lower bounds, candidate is better if its value is higher.
+                comparisons.append(candidate_series > accepted_values)
+
+        # Combine the comparisons along the row axis: a row is "improved" only if the candidate
+        # is strictly better than every accepted candidate for that row.
+        # (We use np.logical_and.reduce to get the elementwise "and" across all accepted candidates.)
+        all_better = np.logical_and.reduce(np.vstack([comp.values for comp in comparisons]))
+
+        # The candidate is significant if there is at least one row where this holds.
+        return all_better.any()
+
+
+    def _record_conjecture(self, complexity, rhs_str, func):
+        if self.hypothesis_str:
+            if self.bound_type == 'lower':
+                full_expr_str = f"For any {self.hypothesis_str}, {self.target} >= {rhs_str}."
+            else:
+                full_expr_str = f"For any {self.hypothesis_str}, {self.target} <= {rhs_str}."
+        else:
+            full_expr_str = f"{self.target} >= {rhs_str}" if self.bound_type == 'lower' else f"{self.target} <= {rhs_str}"
+        candidate_series = func(self.knowledge_table)
+        touches = int((self.knowledge_table[self.target] == candidate_series).sum())
+        new_conj = {
+            'complexity': complexity,
+            'rhs_str': rhs_str,
+            'full_expr_str': full_expr_str,
+            'func': func,
+            'touch': touches
+        }
+        self.accepted_conjectures.append(new_conj)
+        print(f"Accepted conjecture (complexity {complexity}, touch {touches}): {full_expr_str}")
+        self._prune_conjectures()
+
+    def _prune_conjectures(self):
+        new_conjectures = []
+        removed_conjectures = []
+        n = len(self.accepted_conjectures)
+        for i in range(n):
+            conj_i = self.accepted_conjectures[i]
+            series_i = conj_i['func'](self.knowledge_table)
+            dominated = False
+            for j in range(n):
+                if i == j:
+                    continue
+                series_j = self.accepted_conjectures[j]['func'](self.knowledge_table)
+                if self.bound_type == 'lower':
+                    if ((series_j >= series_i).all() and (series_j > series_i).any()):
+                        dominated = True
+                        break
+                else:
+                    if ((series_j <= series_i).all() and (series_j < series_i).any()):
+                        dominated = True
+                        break
+            if not dominated:
+                new_conjectures.append(conj_i)
+            else:
+                removed_conjectures.append(conj_i)
+        if removed_conjectures:
+            print("Pruning conjectures:")
+            for rem in removed_conjectures:
+                print("Removed:", rem['full_expr_str'])
+        self.accepted_conjectures = new_conjectures
