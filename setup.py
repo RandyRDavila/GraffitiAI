@@ -19,6 +19,7 @@ setup(
     "reportlab",  # PDF generation
     "PuLP",  # Linear programming solver
     "tqdm",  # Progress bar
+    "pyfiglet",  # ASCII art
     ],
     classifiers=[
         "Programming Language :: Python :: 3",

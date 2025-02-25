@@ -148,10 +148,10 @@ class Christine(BaseConjecturer):
 
         # Apply stronger acceptance criteria:
         if new_conj.support < min_support:
-            print("Rejected conjecture due to insufficient support:", new_conj.full_expr)
+            # print("Rejected conjecture due to insufficient support:", new_conj.full_expr)
             return
         if new_conj.touch < min_touch:
-            print("Rejected conjecture due to insufficient touch:", new_conj.full_expr)
+            # print("Rejected conjecture due to insufficient touch:", new_conj.full_expr)
             return
 
         # Check for duplicates.
@@ -238,10 +238,16 @@ class Christine(BaseConjecturer):
         return self.accepted_conjectures
 
     def write_on_the_wall(self):
-        print()
-        print("--------------------")
-        print("Christine Conjectures:")
-        print("--------------------")
+        from pyfiglet import Figlet
+        fig = Figlet(font='slant')
+
+        # Print the main title.
+        title = fig.renderText("Graffiti AI: Christine")
+        print(title)
+
+        if not hasattr(self, 'conjectures') or not self.conjectures:
+            print("No conjectures generated yet!")
+            return
         for c in self.consolidate_conjectures():
             print(c)
             print()

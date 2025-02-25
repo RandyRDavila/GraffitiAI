@@ -1,10 +1,10 @@
 import pulp
 import math
+import ast
+import numpy as np
+import pandas as pd
 from fractions import Fraction
 from itertools import combinations
-
-# Assume BoundConjecture is imported from your common module:
-from graffitiai.base import BoundConjecture
 
 
 __all__ = [
@@ -18,7 +18,17 @@ __all__ = [
     'filter_false_conjectures',
     'strong_smokey',
     'convert_conjecture_dicts',
-
+    'is_list_string',
+    'convert_list_string',
+    'convert_list_to_array',
+    'convert_and_no_pad',
+    'convert_and_pad',
+    'median_absolute_deviation',
+    'compute_statistics',
+    'expand_statistics',
+    'linear_function_to_string',
+    'filter_upper_candidates',
+    'filter_lower_candidates',
 ]
 
 def make_upper_linear_conjecture(
@@ -36,6 +46,7 @@ def make_upper_linear_conjecture(
     by solving an LP that finds weights (W) and an intercept (b) so that, for all rows,
     candidate >= target. Returns a BoundConjecture instance (or None if infeasible).
     """
+    from graffitiai.base import BoundConjecture
     pulp.LpSolverDefault.msg = 0
 
     # Filter data by the hypothesis condition.
@@ -149,6 +160,7 @@ def make_lower_linear_conjecture(
     by solving an LP that finds weights (W) and an intercept (b) so that, for all rows,
     candidate <= target. Returns a BoundConjecture instance (or None if infeasible).
     """
+    from graffitiai.base import BoundConjecture
     pulp.LpSolverDefault.msg = 0
 
     # Filter data by the hypothesis condition.
@@ -584,6 +596,7 @@ def convert_conjecture_dicts(conjecture_reps, target, hypothesis=None, default_b
     Returns:
         List[BoundConjecture]: A list of BoundConjecture objects created from the representations.
     """
+    from graffitiai.base import BoundConjecture
     bound_conjectures = []
 
     if isinstance(conjecture_reps, dict):
@@ -627,3 +640,149 @@ def convert_conjecture_dicts(conjecture_reps, target, hypothesis=None, default_b
 
     return bound_conjectures
 
+def is_list_string(x):
+    """Return True if x is a string that can be parsed as a list or tuple."""
+    try:
+        val = ast.literal_eval(x)
+        return isinstance(val, (list, tuple))
+    except Exception:
+        return False
+
+def convert_list_string(x):
+    """Convert a string representation of a list to an actual list.
+       Returns None if conversion fails.
+    """
+    try:
+        val = ast.literal_eval(x)
+        if isinstance(val, (list, tuple)):
+            return list(val)
+    except Exception:
+        pass
+    return None
+
+def convert_list_to_array(lst):
+    """Convert a list to a numpy array if possible."""
+    if is_list_string(lst):
+        lst = convert_list_string(lst)
+        return np.array(lst)
+    elif isinstance(lst, list):
+        return np.array(lst)
+    elif isinstance(lst, np.ndarray):
+        return lst
+    else:
+        return None
+
+def convert_and_no_pad(data):
+    """Convert a pandas series of lists to numpy arrays without padding."""
+    data = data.apply(convert_list_string)
+    return data.apply(convert_list_to_array)
+
+def convert_and_pad(data, pad_value = 0):
+    """Convert a pandas series of lists to numpy arrays and pad them
+    with a specified value.
+    """
+    # data = data.apply(convert_list_string)
+    max_len = data.apply(len).max()
+    return data.apply(lambda x: np.pad(x, (0, max_len - len(x)), 'constant', constant_values=pad_value))
+
+def median_absolute_deviation(lst):
+    """Compute the Median Absolute Deviation (MAD)."""
+    median = np.median(lst)
+    abs_deviation = np.abs(lst - median)
+    return np.median(abs_deviation)
+
+def compute_statistics(lst):
+    """Compute various statistics for a list."""
+    data = {}
+    data['length'] = len(lst)
+    data['min'] = np.min(lst)
+    data['max'] = np.max(lst)
+    data['range'] = data['max'] - data['min']
+    data['mean'] = np.mean(lst)
+    data['median'] = np.median(lst)
+    data['variance'] = np.var(lst)
+    data['abs_dev'] = np.abs(lst - data['median'])
+    data['std_dev'] = np.std(lst)
+    data['median_absolute_deviation'] = median_absolute_deviation(lst)
+    data['count_non_zero'] = np.count_nonzero(lst)
+    data['count_zero'] = data['length'] - data['count_non_zero']
+    return data
+
+def expand_statistics(column, df):
+    """Expand a column of statistics into separate columns."""
+
+    # Apply the function to each row and expand into separate columns
+    stats_df = df[column].apply(compute_statistics).apply(pd.Series)
+    stats_df.columns = [f"{col}(p_vector)" for col in stats_df.columns]
+    df = df.join(stats_df)
+    return df
+
+
+def linear_function_to_string(W_values, other_invariants, b_value):
+    terms = []
+    for coeff, var in zip(W_values, other_invariants):
+        # Skip terms with zero coefficient.
+        if coeff == 0:
+            continue
+
+        # Format coefficient: omit "1*" for 1, and "-1*" for -1.
+        if coeff == 1:
+            term = f"{var}"
+        elif coeff == -1:
+            term = f"-{var}"
+        else:
+            term = f"{coeff}*{var}"
+        terms.append(term)
+
+    # Add the constant term if it's non-zero.
+    if b_value != 0 or not terms:
+        terms.append(str(b_value))
+
+    # Join terms with " + " and fix signs.
+    result = " + ".join(terms)
+    # Replace sequences like "+ -": "a + -b" becomes "a - b"
+    result = result.replace("+ -", "- ")
+    return result
+
+def filter_upper_candidates(candidates, knowledge_table):
+    """
+    For each candidate upper-bound conjecture in candidates, evaluate its candidate function on the
+    entire knowledge table (it internally filters by its hypothesis) and keep the candidate if there is
+    at least one row where its value is strictly lower than every other candidate's value.
+    """
+    # Evaluate each candidate's function on the full table.
+    cand_values = {cand: cand.candidate_func(knowledge_table) for cand in candidates}
+    accepted = []
+    # Assume that all candidate functions return a pandas Series with the same index.
+    for cand in candidates:
+        series = cand_values[cand]
+        keep = False
+        # Iterate row-by-row; if this candidate is strictly lower than all others on any row, we keep it.
+        for idx in series.index:
+            val = series.loc[idx]
+            if all(val < cand_values[other].loc[idx] for other in candidates if other != cand):
+                keep = True
+                break
+        if keep:
+            accepted.append(cand)
+    return accepted
+
+def filter_lower_candidates(candidates, knowledge_table):
+    """
+    For each candidate lower-bound conjecture in candidates, evaluate its candidate function on the
+    entire knowledge table and keep the candidate if there is at least one row where its value is strictly
+    higher than every other candidate's value.
+    """
+    cand_values = {cand: cand.candidate_func(knowledge_table) for cand in candidates}
+    accepted = []
+    for cand in candidates:
+        series = cand_values[cand]
+        keep = False
+        for idx in series.index:
+            val = series.loc[idx]
+            if all(val > cand_values[other].loc[idx] for other in candidates if other != cand):
+                keep = True
+                break
+        if keep:
+            accepted.append(cand)
+    return accepted
