@@ -25,7 +25,10 @@ __all__ = [
     'convert_and_pad',
     'median_absolute_deviation',
     'compute_statistics',
-    'expand_statistics'
+    'expand_statistics',
+    'linear_function_to_string',
+    'filter_upper_candidates',
+    'filter_lower_candidates',
 ]
 
 def make_upper_linear_conjecture(
@@ -713,3 +716,73 @@ def expand_statistics(column, df):
     stats_df.columns = [f"{col}(p_vector)" for col in stats_df.columns]
     df = df.join(stats_df)
     return df
+
+
+def linear_function_to_string(W_values, other_invariants, b_value):
+    terms = []
+    for coeff, var in zip(W_values, other_invariants):
+        # Skip terms with zero coefficient.
+        if coeff == 0:
+            continue
+
+        # Format coefficient: omit "1*" for 1, and "-1*" for -1.
+        if coeff == 1:
+            term = f"{var}"
+        elif coeff == -1:
+            term = f"-{var}"
+        else:
+            term = f"{coeff}*{var}"
+        terms.append(term)
+
+    # Add the constant term if it's non-zero.
+    if b_value != 0 or not terms:
+        terms.append(str(b_value))
+
+    # Join terms with " + " and fix signs.
+    result = " + ".join(terms)
+    # Replace sequences like "+ -": "a + -b" becomes "a - b"
+    result = result.replace("+ -", "- ")
+    return result
+
+def filter_upper_candidates(candidates, knowledge_table):
+    """
+    For each candidate upper-bound conjecture in candidates, evaluate its candidate function on the
+    entire knowledge table (it internally filters by its hypothesis) and keep the candidate if there is
+    at least one row where its value is strictly lower than every other candidate's value.
+    """
+    # Evaluate each candidate's function on the full table.
+    cand_values = {cand: cand.candidate_func(knowledge_table) for cand in candidates}
+    accepted = []
+    # Assume that all candidate functions return a pandas Series with the same index.
+    for cand in candidates:
+        series = cand_values[cand]
+        keep = False
+        # Iterate row-by-row; if this candidate is strictly lower than all others on any row, we keep it.
+        for idx in series.index:
+            val = series.loc[idx]
+            if all(val < cand_values[other].loc[idx] for other in candidates if other != cand):
+                keep = True
+                break
+        if keep:
+            accepted.append(cand)
+    return accepted
+
+def filter_lower_candidates(candidates, knowledge_table):
+    """
+    For each candidate lower-bound conjecture in candidates, evaluate its candidate function on the
+    entire knowledge table and keep the candidate if there is at least one row where its value is strictly
+    higher than every other candidate's value.
+    """
+    cand_values = {cand: cand.candidate_func(knowledge_table) for cand in candidates}
+    accepted = []
+    for cand in candidates:
+        series = cand_values[cand]
+        keep = False
+        for idx in series.index:
+            val = series.loc[idx]
+            if all(val > cand_values[other].loc[idx] for other in candidates if other != cand):
+                keep = True
+                break
+        if keep:
+            accepted.append(cand)
+    return accepted

@@ -9,9 +9,6 @@ from graffitiai.base import BaseConjecturer, BoundConjecture
 
 __all__ = [
     "GraffitiAI",
-    "linear_function_to_string",
-    "filter_upper_candidates",
-    "filter_lower_candidates",
 ]
 
 class GraffitiAI(BaseConjecturer):
@@ -87,6 +84,7 @@ class GraffitiAI(BaseConjecturer):
         W_lower_bound=-10,
         W_upper_bound=10,
     ):
+        from graffitiai.utils import filter_upper_candidates, filter_lower_candidates
         if other_invariants is None:
             other_invariants = self.numerical_columns
         if hypothesis is None:
@@ -229,6 +227,7 @@ class GraffitiAI(BaseConjecturer):
             W_upper_bound=None,
             W_lower_bound=None,
         ):
+        from graffitiai.utils import linear_function_to_string
         pulp.LpSolverDefault.msg = 0
         # Filter data for the hypothesis condition.
         df = df[df[hyp] == True]
@@ -347,6 +346,7 @@ class GraffitiAI(BaseConjecturer):
             W_upper_bound=None,    # Example numeric default
             W_lower_bound=None,   # Example numeric default
         ):
+        from graffitiai.utils import linear_function_to_string
         pulp.LpSolverDefault.msg = 0
 
         # Filter data for the hypothesis condition
@@ -454,72 +454,3 @@ class GraffitiAI(BaseConjecturer):
             conclusion=conclusion,
             callable=bound_callable
         )
-
-def linear_function_to_string(W_values, other_invariants, b_value):
-    terms = []
-    for coeff, var in zip(W_values, other_invariants):
-        # Skip terms with zero coefficient.
-        if coeff == 0:
-            continue
-
-        # Format coefficient: omit "1*" for 1, and "-1*" for -1.
-        if coeff == 1:
-            term = f"{var}"
-        elif coeff == -1:
-            term = f"-{var}"
-        else:
-            term = f"{coeff}*{var}"
-        terms.append(term)
-
-    # Add the constant term if it's non-zero.
-    if b_value != 0 or not terms:
-        terms.append(str(b_value))
-
-    # Join terms with " + " and fix signs.
-    result = " + ".join(terms)
-    # Replace sequences like "+ -": "a + -b" becomes "a - b"
-    result = result.replace("+ -", "- ")
-    return result
-
-def filter_upper_candidates(candidates, knowledge_table):
-    """
-    For each candidate upper-bound conjecture in candidates, evaluate its candidate function on the
-    entire knowledge table (it internally filters by its hypothesis) and keep the candidate if there is
-    at least one row where its value is strictly lower than every other candidate's value.
-    """
-    # Evaluate each candidate's function on the full table.
-    cand_values = {cand: cand.candidate_func(knowledge_table) for cand in candidates}
-    accepted = []
-    # Assume that all candidate functions return a pandas Series with the same index.
-    for cand in candidates:
-        series = cand_values[cand]
-        keep = False
-        # Iterate row-by-row; if this candidate is strictly lower than all others on any row, we keep it.
-        for idx in series.index:
-            val = series.loc[idx]
-            if all(val < cand_values[other].loc[idx] for other in candidates if other != cand):
-                keep = True
-                break
-        if keep:
-            accepted.append(cand)
-    return accepted
-
-def filter_lower_candidates(candidates, knowledge_table):
-    """
-    For each candidate lower-bound conjecture in candidates, evaluate its candidate function on the
-    entire knowledge table and keep the candidate if there is at least one row where its value is strictly
-    higher than every other candidate's value.
-    """
-    cand_values = {cand: cand.candidate_func(knowledge_table) for cand in candidates}
-    accepted = []
-    for cand in candidates:
-        series = cand_values[cand]
-        keep = False
-        for idx in series.index:
-            val = series.loc[idx]
-            if all(val > cand_values[other].loc[idx] for other in candidates if other != cand):
-                keep = True
-                break
-        if keep:
-            accepted.append(cand)
-    return accepted
