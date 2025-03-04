@@ -27,81 +27,86 @@ pip install graffitiai
 
 Here's a simple example to get you started:
 
-## TxGraffiti
+## TxGraffitiAI
 ```python
-from graffitiai import TxGraffiti
+from graffitiai import GraffitiAI
 
-# Initialize TxGraffiti
-ai = TxGraffiti()
+# Point towards the URL hosted on Jillian's GitHub
+url = 'https://raw.githubusercontent.com/jeddyhub/Polytope_Database/refs/heads/main/Simple_Polytope_Data/simple_polytope_properties.csv'
 
-# Load a custom dataset
-ai.read_csv("<path_to_your_data>.csv")
+# Create an instance of the GraffitiAI class
+ai = GraffitiAI()
 
-# Describe available invariants and hypotheses
-ai.describe_invariants_and_hypotheses()
+# Read the data from the URL
+ai.read_csv(url)
 
-# Generate conjectures
+# Vectorize the p-vector column
+ai.vectorize(['p_vector'])
+
+# Define small face counts
+ai.knowledge_table["p_3"] = ai.knowledge_table["p_vector"].apply(lambda x: x[0] if len(x) > 2 else 0)
+ai.knowledge_table["p_4"] = ai.knowledge_table["p_vector"].apply(lambda x: x[1] if len(x) > 2 else 0)
+ai.knowledge_table["p_5"] = ai.knowledge_table["p_vector"].apply(lambda x: x[2] if len(x) > 2 else 0)
+ai.knowledge_table["p_6"] = ai.knowledge_table["p_vector"].apply(lambda x: x[3] if len(x) > 3 else 0)
+ai.knowledge_table["p_7"] = ai.knowledge_table["p_vector"].apply(lambda x: x[4] if len(x) > 4 else 0)
+ai.knowledge_table['sum(p_vector)'] = ai.knowledge_table['p_vector'].apply(sum)
+ai.knowledge_table['sum(p_vector not p_6)'] = ai.knowledge_table['p_vector'].apply(lambda x: sum([i for i in x if i != 6]))
+ai.knowledge_table['sum(p_vector) with p >= 7'] = ai.knowledge_table['p_vector'].apply(lambda x: sum([i for i in x if i >= 7]))
+
+ai.update_invariant_knowledge()
+
+# Optionally add statistics on the vector valued column
+ai.add_statistics(['p_vector'])
+
+# Drop the columns that are not needed
+ai.drop_columns([
+    'edgelist',
+    'adjacency_matrix',
+    'p_vector',
+])
+
+# Optionally increase the complexity of the types of conjectures applied
+ai.set_complexity( max_complexity=1)
+
+# Generate conjectures on a list of target properties (invariants)
 ai.conjecture(
     target_invariants=[
-        "zero_forcing_number",
-        "total_domination_number",
-    ],
-    other_invariants=[
-        "independence_number",
-        "diameter",
-        "radius",
-        "domination_number"
+        'sum(p_vector)',
+        'p_6',
     ],
     hypothesis=[
-      "a_connected_cubic_and_diamond_free_graph",
-      "a_connected_and_cubic_graph_which_is_not_k_4",
+      'simple_polytope_graph',
+      'simple_polytope_graph_with_p6_greater_than_zero',
+   ],
+   other_invariants=[
+        'p_3',
+        'p_4',
+        'p_5',
+        'p_7',
+        'order',
+        'size',
+        'sum(p_vector)',
+        'size',
+        'sum(p_vector)',
+        'p_6',
+        'median_absolute_deviation(p_vector)',
+        'max(p_vector)',
+        'independence_number',
+
    ],
     complexity_range=(1, 3),
-    lower_b_max=None,
-    upper_b_max=2,
+    lower_b_max=2,
+    lower_b_min=-2,
+    upper_b_max=3,
+    upper_b_min=-3,
+    W_lower_bound=None,
+    W_upper_bound=None,
+    min_touch=1,
 )
 
-# Write the conjectures to the wall!
-ai.write_on_the_wall()
-
-# Save conjectures to a PDF
-ai.save_conjectures_to_pdf("custom_conjectures.pdf")
+ai.write_on_the_wall(search=True)
 ```
 
-## Graffiti
-```python
-from graffitiai import Graffiti
-
-# Initialize Graffiti
-ai = Graffiti()
-
-# Read in data
-ai.read_csv("https://raw.githubusercontent.com/RandyRDavila/GraffitiAI/refs/heads/main/graffitiai/data/data_437.csv")
-
-# Drop unwanted columns
-ai.drop_columns([
-    "adjacency_matrix",
-    "edge_list",
-    "number_of_spanning_trees",
-    'maximum_degree',
-    'minimum_degree',
-    'average_degree',
-    'number_of_triangles',
-    'vertex_connectivity',
-    'edge_connectivity',
-    'is_simple',
-    'clique_number',
-])
-ai.drop_columns([
-    f'number_of_{p}_gons' for p in range(12, 126)
-])
-
-# Conjecture lower bounds on a target invariant with a time limit set to 5 minutes
-ai.conjecture('number_of_6_gons', bound_type='lower', time_limit_minutes=5)
-
-# Write conjectures to the wall.
-ai.write_on_the_wall()
-```
 
 ## Christine
 ```python
