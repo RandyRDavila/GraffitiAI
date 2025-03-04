@@ -10,12 +10,10 @@ from graffitiai.utils import (
     expand_statistics,
 )
 
-
 __all__ = [
     "BoundConjecture",
     "BaseConjecturer",
 ]
-
 
 class BoundConjecture:
     """
@@ -34,7 +32,9 @@ class BoundConjecture:
             touch=None,
             sharp_instances=None,
             conclusion=None,
-            callable=None
+            callable=None,
+            true_objects=None,
+            keywords=None,
         ):
         self.target = target
         self.candidate_expr = candidate_expr
@@ -48,6 +48,8 @@ class BoundConjecture:
         self.sharp_instances = sharp_instances
         self.conclusion = conclusion
         self.callable = callable
+        self.true_objects = true_objects
+        self.keywords = keywords
 
     @staticmethod
     def simplify_expression(expr: str) -> str:
@@ -79,20 +81,26 @@ class BoundConjecture:
         if self.hypothesis:
             if self.bound_type == 'lower':
                 return f"For any {self.hypothesis}, {self.target} ≥ {simplified_expr}"
-            else:
+            elif self.bound_type == 'upper':
                 return f"For any {self.hypothesis}, {self.target} ≤ {simplified_expr}"
+            else:
+                return f"For any {self.hypothesis}, {self.target} = {simplified_expr}"
         else:
             if self.bound_type == 'lower':
                 return f"{self.target} ≥ {simplified_expr}"
-            else:
+            elif self.bound_type == 'upper':
                 return f"{self.target} ≤ {simplified_expr}"
+            else:
+                return f"{self.target} = {simplified_expr}"
 
     def _set_conclusion(self):
         # This method is a placeholder. In a real implementation, this might evaluate the conclusion.
         if self.bound_type == 'lower':
             return f"{self.target} ≥ {self.candidate_expr}"
-        else:
+        elif self.bound_type == 'upper':
             return f"{self.target} ≤ {self.candidate_expr}"
+        else:
+            return f"{self.target} = {self.candidate_expr}"
 
     def evaluate(self, df):
         """Evaluate the candidate function on the given DataFrame."""
@@ -133,6 +141,21 @@ class BoundConjecture:
             false_mask = target_series > candidate_series
         return df[false_mask]
 
+    def is_less_general_than(self, other):
+        """
+        Check if this conjecture is less general than another.
+        A conjecture is less general if it has the same conclusion
+        as the other but a more specific hypothesis (i.e., its true_objects
+        is a strict subset of the other's true_objects).
+        """
+        if self.conclusion != other.conclusion:
+            return False
+        elif self.hypothesis is None:
+            return False
+        elif other.hypothesis is None:
+            return True
+        return self.true_objects < other.true_objects
+
     def __hash__(self):
         # Use the full expression (which captures target, candidate_expr, hypothesis, etc.)
         return hash(self.full_expr)
@@ -143,7 +166,7 @@ class BoundConjecture:
         return self.full_expr == other.full_expr
 
     def __str__(self):
-        return f"{self.full_expr} (touch: {self.touch}, complexity: {self.complexity})"
+        return f"{self.full_expr}"
 
     def __repr__(self):
         return f"BoundConjecture({self.full_expr!r}, touch={self.touch}, complexity={self.complexity})"
@@ -305,6 +328,7 @@ class BaseConjecturer:
 
         # Add a default boolean column if none exist.
         self.numerical_columns = self.knowledge_table.select_dtypes(include=['number']).columns.tolist()
+        self.original_numerical_columns = self.knowledge_table.select_dtypes(include=['number']).columns.tolist()
         self.boolean_columns = self.knowledge_table.select_dtypes(include='bool').columns.tolist()
 
         if not self.boolean_columns:
@@ -354,6 +378,7 @@ class BaseConjecturer:
             columns (list): List of column names to remove.
         """
         self.knowledge_table = self.knowledge_table.drop(columns, axis=1)
+        self.original_numerical_columns = self.knowledge_table.select_dtypes(include=['number']).columns.tolist()
         self.update_invariant_knowledge()
 
     def find_columns_of_lists(self):
@@ -417,6 +442,52 @@ class BaseConjecturer:
         """
         raise NotImplementedError("Subclasses must implement the write_on_the_wall() method.")
 
+    def propose_conjecture(self, new_conjecture):
+        """
+        Propose a new BoundConjecture and integrate it into the existing set.
+
+        The method works as follows:
+        1. Retrieves the current conjectures for the new conjecture's target invariant and bound type.
+        2. Merges the new conjecture with the existing ones.
+        3. Applies the Morgan heuristic to keep only the most general conjectures.
+        4. Determines whether the new conjecture was accepted (i.e. it survives filtering).
+        5. Returns a tuple (accepted, message) that informs the user of the outcome and details
+            any conjectures that were filtered out.
+
+        Note: The user is expected to supply a properly formed BoundConjecture.
+            You might consider a helper function to build one from user inputs.
+        """
+        target = new_conjecture.target
+        bound_type = new_conjecture.bound_type  # expected to be 'upper' or 'lower'
+
+        # Retrieve current conjectures for the target invariant and bound type, if they exist.
+        current_conjectures = []
+        if target in self.conjectures and bound_type in self.conjectures[target]:
+            current_conjectures = self.conjectures[target][bound_type]
+
+        # Merge the new conjecture with the existing ones.
+        merged_conjectures = current_conjectures + [new_conjecture]
+
+        # Apply the Morgan heuristic to filter to the most general conjectures.
+        filtered_conjectures = self.morgan_heuristic(merged_conjectures)
+
+        # Check if the new conjecture is among the accepted (most general) ones.
+        if new_conjecture in filtered_conjectures:
+            accepted = True
+            # Determine which previously stored conjectures were filtered out.
+            filtered_out = [c for c in current_conjectures if c not in filtered_conjectures]
+            message = (f"New conjecture accepted. "
+                    f"The following {len(filtered_out)} conjecture(s) were filtered out: {filtered_out}")
+        else:
+            accepted = False
+            message = "New conjecture rejected: it is less general than an existing conjecture."
+
+        # Update the stored conjectures for this target invariant.
+        if target not in self.conjectures:
+            self.conjectures[target] = {}
+        self.conjectures[target][bound_type] = filtered_conjectures
+
+        return accepted, message
 
     def set_complexity(self, avoid_columns=[], max_complexity=3):
         """
@@ -541,97 +612,3 @@ class BaseConjecturer:
         # Finally, update the invariant knowledge in case new columns need to be tracked.
         self.knowledge_table = df
         self.update_invariant_knowledge()
-
-
-    def _inequality_holds(self, candidate_series):
-        target_series = self.knowledge_table[self.target]
-        if self.bound_type == 'lower':
-            return (target_series >= candidate_series).all()
-        else:
-            return (target_series <= candidate_series).all()
-
-    def _is_significant(self, candidate_series):
-        """
-        A candidate is significant if there is at least one row for which
-        the new candidate improves upon every accepted candidate.
-
-        For upper bounds: candidate_series must be strictly lower than all
-        accepted candidates on at least one row.
-
-        For lower bounds: candidate_series must be strictly higher than all
-        accepted candidates on at least one row.
-        """
-        # If there are no accepted conjectures yet, then the candidate is automatically significant.
-        if not self.accepted_conjectures:
-            return True
-
-        # Create a list of boolean Series, one for each accepted candidate.
-        comparisons = []
-        for conj in self.accepted_conjectures:
-            accepted_values = conj['func'](self.knowledge_table)
-            if self.bound_type == 'upper':
-                # Candidate is better if its value is lower than the accepted one.
-                comparisons.append(candidate_series < accepted_values)
-            else:
-                # For lower bounds, candidate is better if its value is higher.
-                comparisons.append(candidate_series > accepted_values)
-
-        # Combine the comparisons along the row axis: a row is "improved" only if the candidate
-        # is strictly better than every accepted candidate for that row.
-        # (We use np.logical_and.reduce to get the elementwise "and" across all accepted candidates.)
-        all_better = np.logical_and.reduce(np.vstack([comp.values for comp in comparisons]))
-
-        # The candidate is significant if there is at least one row where this holds.
-        return all_better.any()
-
-
-    def _record_conjecture(self, complexity, rhs_str, func):
-        if self.hypothesis_str:
-            if self.bound_type == 'lower':
-                full_expr_str = f"For any {self.hypothesis_str}, {self.target} >= {rhs_str}."
-            else:
-                full_expr_str = f"For any {self.hypothesis_str}, {self.target} <= {rhs_str}."
-        else:
-            full_expr_str = f"{self.target} >= {rhs_str}" if self.bound_type == 'lower' else f"{self.target} <= {rhs_str}"
-        candidate_series = func(self.knowledge_table)
-        touches = int((self.knowledge_table[self.target] == candidate_series).sum())
-        new_conj = {
-            'complexity': complexity,
-            'rhs_str': rhs_str,
-            'full_expr_str': full_expr_str,
-            'func': func,
-            'touch': touches
-        }
-        self.accepted_conjectures.append(new_conj)
-        print(f"Accepted conjecture (complexity {complexity}, touch {touches}): {full_expr_str}")
-        self._prune_conjectures()
-
-    def _prune_conjectures(self):
-        new_conjectures = []
-        removed_conjectures = []
-        n = len(self.accepted_conjectures)
-        for i in range(n):
-            conj_i = self.accepted_conjectures[i]
-            series_i = conj_i['func'](self.knowledge_table)
-            dominated = False
-            for j in range(n):
-                if i == j:
-                    continue
-                series_j = self.accepted_conjectures[j]['func'](self.knowledge_table)
-                if self.bound_type == 'lower':
-                    if ((series_j >= series_i).all() and (series_j > series_i).any()):
-                        dominated = True
-                        break
-                else:
-                    if ((series_j <= series_i).all() and (series_j < series_i).any()):
-                        dominated = True
-                        break
-            if not dominated:
-                new_conjectures.append(conj_i)
-            else:
-                removed_conjectures.append(conj_i)
-        if removed_conjectures:
-            print("Pruning conjectures:")
-            for rem in removed_conjectures:
-                print("Removed:", rem['full_expr_str'])
-        self.accepted_conjectures = new_conjectures
