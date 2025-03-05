@@ -3,13 +3,50 @@ import pandas as pd
 from itertools import combinations
 from fractions import Fraction
 import time
+import re
+from tqdm import tqdm
 
 # Import the ImplicationConjecture from your conjectures module.
 from graffitiai.base import ImplicationConjecture
 from graffitiai.base import BaseConjecturer  # Assuming BaseConjecturer is defined elsewhere.
 
-__all__ = ["Christine"]
+# Utility functions.
+def extract_multiplier(antecedent_expr):
+    # This regex captures a fraction like '1/8' in the antecedent expression.
+    match = re.search(r'(\d+/\d+)', antecedent_expr)
+    if match:
+        return Fraction(match.group(1))
+    return None
 
+def prune_weaker_conjectures(conjectures):
+    grouped = defaultdict(list)
+    for conj in conjectures:
+        key = (conj.property_expr, conj.support)
+        grouped[key].append(conj)
+    pruned = []
+    for group in grouped.values():
+        if len(group) > 1:
+            sorted_group = sorted(group, key=lambda c: extract_multiplier(c.antecedent_expr) or 0)
+            strongest = sorted_group[-1]
+            pruned.append(strongest)
+        else:
+            pruned.append(group[0])
+    return pruned
+
+def prune_by_rhs_variable(conjectures):
+    groups = defaultdict(list)
+    for conj in conjectures:
+        match = re.search(r'>=\s*[\d/]+\*\(\s*([a-zA-Z_]+)\s*\)', conj.antecedent_expr)
+        rhs_var = match.group(1) if match else None
+        key = (conj.property_expr, rhs_var)
+        groups[key].append(conj)
+    pruned = []
+    for group in groups.values():
+        best_conj = max(group, key=lambda c: c.support)
+        pruned.append(best_conj)
+    return pruned
+
+__all__ = ["Christine"]
 
 class Christine(BaseConjecturer):
     """
@@ -29,7 +66,6 @@ class Christine(BaseConjecturer):
         super().__init__()
         self.accepted_conjectures = []
         self.conjectures = {}
-        # Candidate components will be generated later.
         self.candidate_antecedents = None
         self.candidate_properties = None
 
@@ -128,12 +164,6 @@ class Christine(BaseConjecturer):
         return prop_series[condition].all()
 
     def _record_conjecture(self, ant_str, prop_str, ant_func, prop_func, min_support=10, min_touch=1):
-        """
-        Create and record an ImplicationConjecture if the implication holds.
-        Stronger acceptance criteria are imposed: the candidate must have a support of at least
-        min_support and a touch value of at least min_touch. If a duplicate exists with the same antecedent
-        and property, it is replaced if the new one has higher support.
-        """
         new_conj = ImplicationConjecture(
             target=self.target,
             antecedent_expr=ant_str,
@@ -141,20 +171,13 @@ class Christine(BaseConjecturer):
             ant_func=ant_func,
             prop_func=prop_func,
             bound_type=self.bound_type
-            # Optionally, pass hypothesis and complexity here.
         )
         new_conj.compute_support(self.knowledge_table)
         new_conj.compute_touch(self.knowledge_table)
 
-        # Apply stronger acceptance criteria:
-        if new_conj.support < min_support:
-            # print("Rejected conjecture due to insufficient support:", new_conj.full_expr)
-            return
-        if new_conj.touch < min_touch:
-            # print("Rejected conjecture due to insufficient touch:", new_conj.full_expr)
+        if new_conj.support < min_support or new_conj.touch < min_touch:
             return
 
-        # Check for duplicates.
         duplicate_found = False
         for idx, existing in enumerate(self.accepted_conjectures):
             if (existing.antecedent_expr == new_conj.antecedent_expr and
@@ -162,21 +185,18 @@ class Christine(BaseConjecturer):
                 duplicate_found = True
                 if new_conj.support > existing.support:
                     self.accepted_conjectures[idx] = new_conj
-                    print("Replaced duplicate with a tighter conjecture:", new_conj.full_expr)
+                    tqdm.write("Replaced duplicate with a tighter conjecture: " + new_conj.full_expr)
                 else:
-                    print("Duplicate found; keeping the existing conjecture:", existing.full_expr)
+                    tqdm.write("Duplicate found; keeping the existing conjecture: " + existing.full_expr)
                 break
 
         if not duplicate_found:
             self.accepted_conjectures.append(new_conj)
-            print("Accepted conjecture:", new_conj.full_expr)
+            # tqdm.write("Accepted conjecture: " + new_conj.full_expr)
 
         self._prune_conjectures()
 
     def _prune_conjectures(self):
-        """
-        Prune duplicate conjectures using a composite key: (antecedent_expr, property_expr, support).
-        """
         unique_conjs = {}
         for conj in self.accepted_conjectures:
             key = (conj.antecedent_expr, conj.property_expr, conj.support)
@@ -186,53 +206,196 @@ class Christine(BaseConjecturer):
         self.accepted_conjectures = list(unique_conjs.values())
         after = len(self.accepted_conjectures)
         if after < before:
-            print(f"Pruned duplicate conjectures: reduced from {before} to {after}.")
+            tqdm.write(f"Pruned duplicate conjectures: reduced from {before} to {after}.")
+        self.accepted_conjectures = prune_weaker_conjectures(self.accepted_conjectures)
+        self.accepted_conjectures = prune_by_rhs_variable(self.accepted_conjectures)
+
+    def filter_general_properties(self, prop_percentages, prop_funcs):
+        """
+        Given a dict mapping property_expr -> percentage and a corresponding dict mapping
+        property_expr -> property function (which returns a boolean series when applied to the knowledge_table),
+        filter out any property that is a strict subset of another property.
+        Only perform the subset check if a boolean series can be obtained for both properties.
+        """
+        general_props = dict(prop_percentages)  # Make a copy.
+        for propA in list(prop_percentages.keys()):
+            for propB in list(prop_percentages.keys()):
+                if propA == propB:
+                    continue
+                # Attempt to get boolean series for both properties.
+                # For propA:
+                if propA in self.knowledge_table.columns:
+                    seriesA = self.knowledge_table[propA]
+                elif propA in prop_funcs:
+                    seriesA = prop_funcs[propA](self.knowledge_table)
+                else:
+                    seriesA = None
+                # For propB:
+                if propB in self.knowledge_table.columns:
+                    seriesB = self.knowledge_table[propB]
+                elif propB in prop_funcs:
+                    seriesB = prop_funcs[propB](self.knowledge_table)
+                else:
+                    seriesB = None
+
+                # Only compare if both series are available.
+                if seriesA is not None and seriesB is not None:
+                    if ((seriesA) & (~seriesB)).sum() == 0:
+                        supportA = seriesA.sum()
+                        supportB = seriesB.sum()
+                        if supportA < supportB:
+                            general_props.pop(propA, None)
+                            break
+        return general_props
 
     def consolidate_conjectures(self):
         """
         Consolidate accepted conjectures by grouping those with the same antecedent and support.
-        Returns a list of consolidated conjecture strings.
+        For each group, for each boolean property compute:
+            (# rows satisfying both antecedent and property) / (# rows satisfying property) * 100.
+        Only properties with coverage >= 50% are retained.
+        Then, filter out properties that are strict subsets of a more general property.
+        Finally, create two kinds of consolidated entries:
+        A. If-and-only-if conjectures for properties with 100% coverage,
+        B. Regular conjectures for the remaining properties.
+        Groups with no property meeting the threshold are skipped.
+        Additionally, if a boolean column exists for which every row is True,
+        its name is prepended (as "For any <col>,") to the antecedent.
         """
+        from collections import defaultdict
         groups = defaultdict(list)
         for conj in self.accepted_conjectures:
             key = (conj.antecedent_expr, conj.support)
-            groups[key].append(conj.property_expr)
-        bound_symbol = ">=" if self.bound_type == 'lower' else "<="
-        consolidated = []
-        for (ant, support), props in groups.items():
-            props = sorted(set(props))
-            if len(props) > 1:
-                eq_props = " ⇔ ".join(props)
-                consolidated.append(f"Conjecture. If {self.target} {bound_symbol} {ant}, then ({eq_props}) [support: {support}]")
-            else:
-                consolidated.append(f"Conjecture. If {self.target} {bound_symbol} {ant}, then {props[0]} [support: {support}]")
-        return consolidated
+            groups[key].append(conj)
+
+        # Determine a global true column if one exists.
+        global_true = self.global_type
+        global_prefix = f"For any {global_true}, " if global_true is not None else ""
+
+        consolidated_if_and_only = []  # if-and-only-if entries
+        consolidated_regular = []       # regular entries
+
+        for (ant_expr, support), conj_group in groups.items():
+            # Determine the group-specific comparison symbol.
+            group_bound_symbol = ">=" if self.bound_type == 'lower' else "<="
+            if self.bound_type == 'upper' and conj_group and conj_group[0].is_exact_equality(self.knowledge_table):
+                group_bound_symbol = "="
+
+            # Build dictionaries mapping property_expr to its coverage percentage and store property functions.
+            prop_percentages = {}
+            prop_funcs = {}
+            for conj in conj_group:
+                if conj.property_expr not in prop_percentages:
+                    ant_series = conj.ant_func(self.knowledge_table)
+                    if self.bound_type == 'lower':
+                        condition = self.knowledge_table[self.target] >= ant_series
+                    else:
+                        condition = self.knowledge_table[self.target] <= ant_series
+                    prop_series = conj.prop_func(self.knowledge_table)
+                    total_prop = prop_series.sum()  # Assumes booleans (True=1, False=0)
+                    if total_prop == 0:
+                        percentage = 0
+                    else:
+                        common = (prop_series & condition).sum()
+                        percentage = common / total_prop * 100
+                    # Only include properties with coverage >= 50%
+                    if percentage >= 20:
+                        prop_percentages[conj.property_expr] = percentage
+                        prop_funcs[conj.property_expr] = conj.prop_func
+
+            if not prop_percentages:
+                continue
+
+            # Filter out properties that are strict subsets of a more general property.
+            prop_percentages = self.filter_general_properties(prop_percentages, prop_funcs)
+
+            # Separate properties into if-and-only-if (100%) and regular (>=50% but <100%).
+            props_if_and_only = {}
+            props_regular = {}
+            for prop_expr, pct in prop_percentages.items():
+                if abs(pct - 100) < 1e-6:
+                    props_if_and_only[prop_expr] = pct
+                else:
+                    props_regular[prop_expr] = pct
+
+            # Build consolidated string for if-and-only-if conjectures.
+            if props_if_and_only:
+                if len(props_if_and_only) > 1:
+                    prop_list = " ⇔ ".join(props_if_and_only.keys())
+                else:
+                    prop_list = list(props_if_and_only.keys())[0]
+                if_and_only_str = (
+                    f"Conjecture (if and only if):\n"
+                    f"{global_prefix}{self.target} {group_bound_symbol} {ant_expr}\n"
+                    f"if and only if {prop_list}\n"
+                    f"[support: {support}]"
+                )
+                consolidated_if_and_only.append((100, len(props_if_and_only), if_and_only_str))
+
+            # Build consolidated string for regular conjectures.
+            if props_regular:
+                prop_strs = []
+                for prop_expr, pct in sorted(props_regular.items()):
+                    prop_strs.append(f"{prop_expr} ({pct:.0f}%)")
+                if len(prop_strs) > 1:
+                    conclusion_str = "\n".join("    " + prop for prop in prop_strs)
+                else:
+                    conclusion_str = prop_strs[0]
+                max_pct = max(props_regular.values()) if props_regular else 0
+                count_booleans = len(prop_strs)
+                reg_str = (
+                    f"Conjecture:\n"
+                    f"For any {self.global_type}, if {self.target} {group_bound_symbol} {ant_expr},\n"
+                    f"then:\n{conclusion_str}\n"
+                    f"[support: {support}]"
+                )
+                consolidated_regular.append((max_pct, count_booleans, reg_str))
+
+        consolidated_if_and_only.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        consolidated_regular.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+        all_entries = [s for _, _, s in consolidated_if_and_only] + [s for _, _, s in consolidated_regular]
+        return all_entries
 
     def search(self):
         """
-        The main search loop.
-        Iterates over candidate antecedents and candidate properties.
-        For each pair, if the implication holds, record the conjecture.
-        Stops if the time limit is reached.
+        The main search loop using a time-based progress bar.
+        The progress bar's total is set to the time limit (in seconds) and updated based on elapsed time.
         """
         start_time = time.time()
+        pbar = tqdm(total=self.time_limit, desc=f"Searching {self.bound_type} conjectures (time-based)")
+        last_time = start_time
+
         for ant_str, ant_func in self.candidate_antecedents:
             try:
                 ant_series = ant_func(self.knowledge_table)
             except Exception as e:
-                print(f"Error evaluating antecedent '{ant_str}':", e)
+                for _ in self.candidate_properties:
+                    current_time = time.time()
+                    dt = current_time - last_time
+                    pbar.update(dt)
+                    last_time = current_time
                 continue
+
             for prop_str, prop_func in self.candidate_properties:
+                current_time = time.time()
+                dt = current_time - last_time
+                pbar.update(dt)
+                last_time = current_time
+
+                if current_time - start_time >= self.time_limit:
+                    pbar.set_description("Time limit reached, stopping search.")
+                    pbar.close()
+                    return
+
                 try:
                     prop_series = prop_func(self.knowledge_table)
                 except Exception as e:
-                    print(f"Error evaluating property '{prop_str}':", e)
                     continue
+
                 if self._implication_holds(ant_series, prop_series):
                     self._record_conjecture(ant_str, prop_str, ant_func, prop_func)
-                if time.time() - start_time >= self.time_limit:
-                    print("Time limit reached, stopping search.")
-                    return
+        pbar.close()
 
     def get_accepted_conjectures(self):
         return self.accepted_conjectures
@@ -240,11 +403,8 @@ class Christine(BaseConjecturer):
     def write_on_the_wall(self):
         from pyfiglet import Figlet
         fig = Figlet(font='slant')
-
-        # Print the main title.
         title = fig.renderText("Graffiti AI: Christine")
         print(title)
-
         if not hasattr(self, 'conjectures') or not self.conjectures:
             print("No conjectures generated yet!")
             return
@@ -254,37 +414,14 @@ class Christine(BaseConjecturer):
 
     def conjecture(self, target, bound_type='lower', time_limit_minutes=1,
                    csv_path=None, df=None, candidate_antecedents=None, candidate_properties=None):
-        """
-        The main entry point for generating conjectures.
-        All heavy work occurs here:
-          - The data is read (if needed),
-          - The target and bound type are set,
-          - The time limit is set,
-          - Candidate antecedents and properties are generated,
-          - The search is run,
-          - Results are stored in self.conjectures.
-
-        Parameters:
-            target (str): The target column.
-            bound_type (str): 'lower' or 'upper'.
-            time_limit_minutes (float): Time limit in minutes.
-            csv_path (str, optional): Path to a CSV file.
-            df (pd.DataFrame, optional): A DataFrame with the data.
-            candidate_antecedents (iterable, optional): Overrides default antecedent candidates.
-            candidate_properties (iterable, optional): Overrides default property candidates.
-        """
-        # Read data if provided.
         if csv_path is not None:
             self.read_csv(csv_path)
         elif df is not None:
             self.knowledge_table = df.copy()
-
         self.target = target
         self.bound_type = bound_type
         self.time_limit = time_limit_minutes * 60
-
         self._generate_candidate_components(target, candidate_antecedents, candidate_properties)
         self.accepted_conjectures = []
         self.search()
         self.conjectures = {target: {"implications": self.get_accepted_conjectures()}}
-

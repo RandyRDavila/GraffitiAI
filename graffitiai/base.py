@@ -179,11 +179,9 @@ class ImplicationConjecture:
       If target {≥ or ≤} antecedent_expr, then property_expr holds.
 
     For example:
-
-      If number_of_vertices ≥ 1*(index) + 2/3*(number_of_edges) - 3, then some property holds,
-      or more specifically:
-
-      If sum_p_gons_with_p>6 ≥ radius, then number_of_6_gons = 0.
+      If zero_forcing_number ≤ min_degree, then (connected_zero_forcing_number = min_degree)
+      but if the data shows that zero_forcing_number ≥ min_degree always, then the hypothesis forces
+      zero_forcing_number = min_degree.
 
     Attributes:
         target (str): The target invariant (e.g. "number_of_6_gons").
@@ -204,17 +202,56 @@ class ImplicationConjecture:
         self.antecedent_expr = antecedent_expr
         self.property_expr = property_expr
         self.ant_func = ant_func
-        self.prop_func = prop_func
+        self.prop_func = prop_func  # Stored for later use (e.g. in filtering)
         self.bound_type = bound_type
         self.hypothesis = hypothesis
         self.complexity = complexity
         self.support = support
         self.touch = None  # to be computed later (e.g. with compute_touch)
+        # Initially format full_expr without DataFrame-specific info.
         self.full_expr = self.format_full_expression()
 
     def format_full_expression(self):
-        """Format the full human-readable expression for the conjecture."""
+        """
+        Format the full human-readable expression for the conjecture using the default inequality.
+        This does not yet account for data-driven equality.
+        """
         symbol = ">=" if self.bound_type == 'lower' else "<="
+        expr = f"If {self.target} {symbol} {self.antecedent_expr}, then {self.property_expr}"
+        if self.support is not None:
+            expr += f" [support: {self.support}]"
+        if self.hypothesis:
+            expr = f"For any {self.hypothesis}, " + expr
+        return expr
+
+    def is_exact_equality(self, df):
+        """
+        For an upper-bound conjecture (hypothesis: target <= antecedent):
+        If the data shows that target >= antecedent on all rows, then target = antecedent.
+        Similarly, for a lower-bound conjecture (hypothesis: target >= antecedent):
+        If the data shows that target <= antecedent on all rows, then target = antecedent.
+        """
+        ant_series = self.ant_func(df)
+        target_series = df[self.target]
+        if self.bound_type == 'upper':
+            # Hypothesis is target <= ant_series.
+            # If data shows target_series >= ant_series always, then equality holds.
+            return (target_series >= ant_series).all()
+        else:  # bound_type == 'lower'
+            # Hypothesis is target >= ant_series.
+            # If data shows target_series <= ant_series always, then equality holds.
+            return (target_series <= ant_series).all()
+
+
+    def get_full_expression(self, df):
+        """
+        Returns the full human-readable expression for the conjecture using the appropriate
+        comparison symbol. For upper-bound conjectures, if the data forces equality, uses "=".
+        """
+        if self.bound_type == 'upper' and self.is_exact_equality(df):
+            symbol = "="
+        else:
+            symbol = ">=" if self.bound_type == 'lower' else "<="
         expr = f"If {self.target} {symbol} {self.antecedent_expr}, then {self.property_expr}"
         if self.support is not None:
             expr += f" [support: {self.support}]"
@@ -233,6 +270,12 @@ class ImplicationConjecture:
             condition = df[self.target] <= ant_series
         self.support = int(condition.sum())
         return self.support
+
+    def get_property_series(self, df):
+        """
+        Returns a boolean Series representing the property by applying the stored property function.
+        """
+        return self.prop_func(df)
 
     def evaluate(self, df):
         """
@@ -334,6 +377,7 @@ class BaseConjecturer:
         if not self.boolean_columns:
             self.knowledge_table['object'] = True
 
+        self.global_type = self.get_global_true_column()
         self.update_invariant_knowledge()
 
         if drop_columns:
@@ -612,3 +656,13 @@ class BaseConjecturer:
         # Finally, update the invariant knowledge in case new columns need to be tracked.
         self.knowledge_table = df
         self.update_invariant_knowledge()
+
+    def get_global_true_column(self):
+        """
+        Returns the first boolean column in the knowledge_table that is True for every row.
+        If no such column exists, returns None.
+        """
+        for col in self.knowledge_table.columns:
+            if pd.api.types.is_bool_dtype(self.knowledge_table[col]) and self.knowledge_table[col].all():
+                return col
+        return None
