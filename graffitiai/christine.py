@@ -18,20 +18,51 @@ def extract_multiplier(antecedent_expr):
         return Fraction(match.group(1))
     return None
 
-def prune_weaker_conjectures(conjectures):
+def prune_weaker_conjectures(conjectures, df, tolerance=0.05):
+    """
+    Prune conjectures by grouping them based on property_expr and support.
+    If any candidate in a group has support equal to the total number of rows
+    (i.e. the condition holds on all rows) and its multiplier equals 1,
+    that candidate is preferred.
+
+    Parameters:
+      conjectures: list of ImplicationConjecture objects.
+      df: the knowledge_table DataFrame.
+      tolerance: used for comparing support differences if needed.
+    """
+    from collections import defaultdict
     grouped = defaultdict(list)
     for conj in conjectures:
         key = (conj.property_expr, conj.support)
         grouped[key].append(conj)
     pruned = []
+    n_rows = len(df)
     for group in grouped.values():
-        if len(group) > 1:
-            sorted_group = sorted(group, key=lambda c: extract_multiplier(c.antecedent_expr) or 0)
-            strongest = sorted_group[-1]
-            pruned.append(strongest)
+        # Look for candidates with full support.
+        full_support_candidates = [c for c in group if c.support == n_rows]
+        if full_support_candidates:
+            # If one of these has multiplier 1, choose it.
+            best = None
+            for c in full_support_candidates:
+                multiplier = extract_multiplier(c.antecedent_expr)
+                if multiplier is not None and multiplier == 1:
+                    best = c
+                    break
+            # If none has an exact multiplier 1, take the first candidate with full support.
+            if best is None:
+                best = full_support_candidates[0]
+            pruned.append(best)
         else:
-            pruned.append(group[0])
+            # Otherwise, if the group has multiple candidates, you can compare support differences
+            # or simply choose the one with the highest multiplier.
+            if len(group) > 1:
+                sorted_group = sorted(group, key=lambda c: extract_multiplier(c.antecedent_expr) or 0)
+                best = sorted_group[-1]
+                pruned.append(best)
+            else:
+                pruned.append(group[0])
     return pruned
+
 
 def prune_by_rhs_variable(conjectures):
     groups = defaultdict(list)
@@ -207,7 +238,8 @@ class Christine(BaseConjecturer):
         after = len(self.accepted_conjectures)
         if after < before:
             tqdm.write(f"Pruned duplicate conjectures: reduced from {before} to {after}.")
-        self.accepted_conjectures = prune_weaker_conjectures(self.accepted_conjectures)
+        # Use the modified pruning function here:
+        self.accepted_conjectures = prune_weaker_conjectures(self.accepted_conjectures, self.knowledge_table)
         self.accepted_conjectures = prune_by_rhs_variable(self.accepted_conjectures)
 
     def filter_general_properties(self, prop_percentages, prop_funcs):
@@ -313,7 +345,7 @@ class Christine(BaseConjecturer):
             props_if_and_only = {}
             props_regular = {}
             for prop_expr, pct in prop_percentages.items():
-                if abs(pct - 100) < 1e-6:
+                if abs(pct - 100) == 0.0:
                     props_if_and_only[prop_expr] = pct
                 else:
                     props_regular[prop_expr] = pct
