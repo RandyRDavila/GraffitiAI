@@ -2,6 +2,7 @@ from fractions import Fraction
 import pandas as pd
 import pulp
 import math
+import sympy as sp
 
 
 __all__ = [
@@ -32,6 +33,8 @@ class OptimistConjecture:
             true_objects=None,
             bound_callable=None,
             candidate_func=None,
+            sharp_instances=None,
+            rank=None,
         ):
         """
         Represents a mathematical conjecture of the form:
@@ -60,6 +63,8 @@ class OptimistConjecture:
         self._set_conclusion_string()
         self.bound_callable = bound_callable  # may be used for filtering
         self.candidate_func = candidate_func  # may be used for filtering
+        self.sharp_instances = sharp_instances  # may be used for filtering
+        self.rank = rank  # may be used for filtering
 
         # We use the string representation as our 'conclusion'
         self.conclusion = self.__repr__()
@@ -259,6 +264,45 @@ def make_upper_linear_conjecture(
     }
     touch = len(sharp_instances)
 
+    if touch == 0:
+        rank = 0
+    else:
+        # ---------------------------------------------
+        # 1.  Build the matrix of invariant vectors
+        # ---------------------------------------------
+        sharp_df = df[df["name"].isin(sharp_instances)]
+
+        # Choose the columns you want in the matrix.
+        # • Most geometric approaches (e.g., facets of a convex hull)
+        #   use only the 'other_invariants' coordinates.
+        # • If you also need the target value append it:
+        #     cols = other_invariants + [target_invariant]
+        cols = other_invariants
+
+        # ---------------------------------------------
+        # 2.  Convert to a SymPy Matrix (exact arithmetic)
+        # ---------------------------------------------
+
+        # Helper to coerce Python Fractions / ints / floats to SymPy Rationals
+        M = sp.Matrix(
+            [[sp.nsimplify(x) for x in row]         # nsimplify preserves fractions exactly
+            for row in sharp_df[cols].values]
+        )
+
+        # ---------------------------------------------
+        # 3.  Compute the rank
+        # ---------------------------------------------
+        rank = M.rank()            # exact row-rank over ℚ
+
+        # If you prefer a quick floating-point answer:
+        # import numpy as np
+        # rank = np.linalg.matrix_rank(sharp_df[cols].to_numpy(dtype=float))
+
+        # ---------------------------------------------
+        # 4.  (Optional) store it on the Conjecture object
+        # ---------------------------------------------
+        # dim = rank - 1               # rank-1 if you want affine dimension
+
     # Define a callable representative of the right-hand side of the inequality.
     rhs_function = lambda x: sum(W_values[i] * other_functions[i](x) for i in range(complexity)) + b_value
 
@@ -286,6 +330,8 @@ def make_upper_linear_conjecture(
         rhs_string=rhs_string,
         bound_callable=bound_callable,
         candidate_func=candidate_function,
+        sharp_instances=sharp_instances,
+        rank=rank,
     )
 
 def make_lower_linear_conjecture(
@@ -388,6 +434,45 @@ def make_lower_linear_conjecture(
     }
     touch = len(sharp_instances)
 
+    if touch == 0:
+        rank = 0
+    else:
+        # ---------------------------------------------
+        # 1.  Build the matrix of invariant vectors
+        # ---------------------------------------------
+        sharp_df = df[df["name"].isin(sharp_instances)]
+
+        # Choose the columns you want in the matrix.
+        # • Most geometric approaches (e.g., facets of a convex hull)
+        #   use only the 'other_invariants' coordinates.
+        # • If you also need the target value append it:
+        #     cols = other_invariants + [target_invariant]
+        cols = other_invariants
+
+        # ---------------------------------------------
+        # 2.  Convert to a SymPy Matrix (exact arithmetic)
+        # ---------------------------------------------
+
+        # Helper to coerce Python Fractions / ints / floats to SymPy Rationals
+        M = sp.Matrix(
+            [[sp.nsimplify(x) for x in row]         # nsimplify preserves fractions exactly
+            for row in sharp_df[cols].values]
+        )
+
+        # ---------------------------------------------
+        # 3.  Compute the rank
+        # ---------------------------------------------
+        rank = M.rank()            # exact row-rank over ℚ
+
+        # If you prefer a quick floating-point answer:
+        # import numpy as np
+        # rank = np.linalg.matrix_rank(sharp_df[cols].to_numpy(dtype=float))
+
+        # ---------------------------------------------
+        # 4.  (Optional) store it on the Conjecture object
+        # ---------------------------------------------
+        # dim = rank - 1               # rank-1 if you want affine dimension
+
     # Define a callable for the right-hand side of the inequality.
     rhs_function = lambda x: sum(W_values[i] * other_functions[i](x) for i in range(complexity)) + b_value
 
@@ -417,6 +502,8 @@ def make_lower_linear_conjecture(
         rhs_string=rhs_string,
         bound_callable=bound_callable,
         candidate_func=candidate_function,
+        sharp_instances=sharp_instances,
+        rank=rank,
     )
 
 

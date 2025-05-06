@@ -227,6 +227,6 @@ class Optimist:
                 all_conjectures.append(conj)
 
         self.all_conjectures = all_conjectures
-        self.all_conjectures.sort(key=lambda x: x.touch, reverse=True)
+        self.all_conjectures.sort(key=lambda x: x.rank, reverse=True)
 
         return all_conjectures
